@@ -13,6 +13,9 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gl.RenderPipelines;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.ItemStack;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
@@ -120,6 +123,12 @@ public class CustomMacroClient implements ClientModInitializer {
 
     private void executeMacro(MinecraftClient client, MacroEntry macro) {
         if (client.player == null || client.getNetworkHandler() == null) return;
+
+        if (macro.isSwapAction()) {
+            executeSwap(client, macro.getAction().trim());
+            return;
+        }
+
         String action = macro.getAction().trim();
         if (action.isEmpty()) return;
         LOGGER.info("[CustomMacro] Firing '{}': {}", macro.getName(), action);
@@ -128,6 +137,96 @@ public class CustomMacroClient implements ClientModInitializer {
         } else {
             client.player.networkHandler.sendChatMessage(action);
         }
+    }
+
+    /**
+     * Swap item di inventory dengan item yang sedang ada di slot target.
+     *
+     * Format action: "SLOT_TARGET:ITEM_KEYWORD"
+     * Contoh: "chest:elytra"  -> cari elytra di inventory, swap ke slot chest armor
+     *         "hotbar0:sword" -> cari sword di inventory, swap ke hotbar slot 0
+     *
+     * Slot target: chest, head, legs, feet, hotbar0..hotbar8, offhand
+     */
+    private void executeSwap(MinecraftClient client, String swapTarget) {
+        if (client.player == null || client.interactionManager == null) return;
+
+        String[] parts = swapTarget.split(":", 2);
+        if (parts.length != 2) {
+            LOGGER.warn("[CustomMacro] Format swap salah: {}. Gunakan 'slot:keyword'", swapTarget);
+            return;
+        }
+
+        String slotName   = parts[0].trim().toLowerCase();
+        String keyword    = parts[1].trim().toLowerCase();
+        PlayerInventory inv = client.player.getInventory();
+
+        // Tentukan index slot target di PlayerInventory
+        // PlayerInventory: 0-8 = hotbar, 9-35 = main, 36=boots, 37=legs, 38=chest, 39=head, 40=offhand
+        int targetSlot = switch (slotName) {
+            case "head", "helmet"    -> 39;
+            case "chest", "chestplate" -> 38;
+            case "legs", "leggings"  -> 37;
+            case "feet", "boots"     -> 36;
+            case "offhand"           -> 40;
+            default -> {
+                if (slotName.startsWith("hotbar")) {
+                    try { yield Integer.parseInt(slotName.substring(6)); }
+                    catch (NumberFormatException e) { yield -1; }
+                }
+                yield -1;
+            }
+        };
+
+        if (targetSlot < 0) {
+            LOGGER.warn("[CustomMacro] Slot tidak dikenal: {}", slotName);
+            return;
+        }
+
+        // Cari item yang cocok dengan keyword di seluruh inventory (0-40)
+        int foundSlot = -1;
+        for (int i = 0; i < inv.size(); i++) {
+            if (i == targetSlot) continue; // jangan swap dengan dirinya sendiri
+            ItemStack stack = inv.getStack(i);
+            if (!stack.isEmpty()) {
+                String itemName = stack.getItem().getTranslationKey().toLowerCase();
+                String displayName = stack.getName().getString().toLowerCase();
+                if (itemName.contains(keyword) || displayName.contains(keyword)) {
+                    foundSlot = i;
+                    break;
+                }
+            }
+        }
+
+        if (foundSlot == -1) {
+            LOGGER.info("[CustomMacro] Item '{}' tidak ditemukan di inventory", keyword);
+            return;
+        }
+
+        LOGGER.info("[CustomMacro] Swap item di slot {} ke slot {} ({})", foundSlot, targetSlot, slotName);
+
+        // Lakukan swap via inventory click packets
+        // Kita perlu convert slot PlayerInventory ke slot index screen inventory
+        // Saat player inventory screen terbuka: slot 0=craft, 1-4=craft grid, 5=head, 6=chest, 7=legs, 8=feet
+        // Tapi karena kita tidak buka screen, gunakan pendekatan langsung: set slot di inventory
+        doInventorySwap(client, foundSlot, targetSlot);
+    }
+
+    /**
+     * Lakukan swap dua slot di PlayerInventory secara langsung tanpa membuka screen.
+     * Caranya: salin item sementara, set ulang kedua slot.
+     */
+    private void doInventorySwap(MinecraftClient client, int slotA, int slotB) {
+        if (client.player == null) return;
+        PlayerInventory inv = client.player.getInventory();
+        ItemStack itemA = inv.getStack(slotA).copy();
+        ItemStack itemB = inv.getStack(slotB).copy();
+        inv.setStack(slotA, itemB);
+        inv.setStack(slotB, itemA);
+        // Sync ke server dengan mengirim perubahan
+        // Fabric tidak expose direct packet, tapi MinecraftClient.player.networkHandler memiliki sendCommand
+        // Cara paling reliable: trigger auto-sync MC dengan menyentuh selectedSlot
+        client.player.getInventory().markDirty();
     }
 
     private void renderOverlayButton(DrawContext ctx) {

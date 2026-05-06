@@ -31,7 +31,8 @@ public class MacroConfig {
                 sb.append("    \"modShift\": ").append(e.isModShift()).append(",\n");
                 sb.append("    \"modCtrl\": ").append(e.isModCtrl()).append(",\n");
                 sb.append("    \"modAlt\": ").append(e.isModAlt()).append(",\n");
-                sb.append("    \"action\": ").append(jsonStr(e.getAction())).append("\n");
+                sb.append("    \"action\": ").append(jsonStr(e.getAction())).append(",\n");
+                sb.append("    \"actionType\": ").append(jsonStr(e.getActionType().name())).append("\n");
                 sb.append("  }");
                 if (i < macros.size() - 1) sb.append(",");
                 sb.append("\n");
@@ -93,7 +94,13 @@ public class MacroConfig {
             boolean modCtrl  = readBool(obj, "modCtrl");
             boolean modAlt   = readBool(obj, "modAlt");
             if (name == null || action == null) return null;
-            return new MacroEntry(name, keyCode, modShift, modCtrl, modAlt, action);
+            MacroEntry entry = new MacroEntry(name, keyCode, modShift, modCtrl, modAlt, action);
+            String actionTypeStr = readStr(obj, "actionType");
+            if (actionTypeStr != null) {
+                try { entry.setActionType(MacroEntry.ActionType.valueOf(actionTypeStr)); }
+                catch (IllegalArgumentException ignored) {}
+            }
+            return entry;
         } catch (Exception e) {
             LOGGER.warn("[CustomMacro] Skipping malformed entry: {}", e.getMessage());
             return null;

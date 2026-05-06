@@ -1,6 +1,9 @@
 package dev.custommacro.config;
 
 public class MacroEntry {
+    // Tipe aksi yang didukung
+    public enum ActionType { CHAT, SWAP_ITEM }
+
     private String  name;
     private int     keyCode;
     private boolean modShift;
@@ -8,6 +11,7 @@ public class MacroEntry {
     private boolean modAlt;
     private String  action;
     private boolean isCommand;
+    private ActionType actionType = ActionType.CHAT;
 
     public MacroEntry() {}
 
@@ -39,6 +43,9 @@ public class MacroEntry {
     public void    setAction(String a) { action = a; isCommand = a != null && a.startsWith("/"); }
     public boolean isCommand()        { return isCommand; }
     public void    setCommand(boolean c) { isCommand = c; }
+    public ActionType getActionType() { return actionType == null ? ActionType.CHAT : actionType; }
+    public void setActionType(ActionType t) { this.actionType = t; }
+    public boolean isSwapAction()     { return getActionType() == ActionType.SWAP_ITEM; }
 
     public String getKeyComboDisplay(java.util.function.IntFunction<String> keyNameFn) {
         if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_UNKNOWN) return "?";

@@ -2,6 +2,7 @@ package dev.custommacro.gui;
 
 import dev.custommacro.config.MacroConfig;
 import dev.custommacro.config.MacroEntry;
+import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -70,6 +71,13 @@ public class MacroManagerScreen extends Screen {
     private boolean pendingCtrl    = false;
     private boolean pendingAlt     = false;
     private boolean awaitingKey    = false;
+
+    // Action type toggle (CHAT vs SWAP_ITEM)
+    private ButtonWidget actionTypeButton;
+    private MacroEntry.ActionType pendingActionType = MacroEntry.ActionType.CHAT;
+    // Swap-specific fields
+    private TextFieldWidget swapSlotField;
+    private TextFieldWidget swapKeywordField;
 
     // Modifier toggle buttons (saat edit)
     private ButtonWidget shiftToggle;
@@ -168,7 +176,12 @@ public class MacroManagerScreen extends Screen {
         int fieldX  = cx + 58;
         int fieldW  = cw - 62;
         int startY  = cy + 4;
-        int rowGap  = 28;
+        int rowGap  = 26;
+
+        // Restore action type dari entry yang diedit
+        if (editIndex >= 0) {
+            pendingActionType = entries.get(editIndex).getActionType();
+        }
 
         // Name field
         nameField = new TextFieldWidget(textRenderer, fieldX, startY, fieldW, 18, Text.literal("Name"));
@@ -177,12 +190,38 @@ public class MacroManagerScreen extends Screen {
         if (editIndex >= 0) nameField.setText(entries.get(editIndex).getName());
         addDrawableChild(nameField);
 
-        // Action field
-        actionField = new TextFieldWidget(textRenderer, fieldX, startY + rowGap, fieldW, 18, Text.literal("Action"));
-        actionField.setMaxLength(256);
-        actionField.setPlaceholder(Text.literal("/command atau teks..."));
-        if (editIndex >= 0) actionField.setText(entries.get(editIndex).getAction());
-        addDrawableChild(actionField);
+        // Action type toggle (row 1)
+        int typeY = startY + rowGap;
+        int typeW = 70;
+        actionTypeButton = ButtonWidget.builder(actionTypeLabel(),
+                btn -> { toggleActionType(); }
+        ).dimensions(fieldX, typeY, typeW, 16).build();
+        addDrawableChild(actionTypeButton);
+
+        if (pendingActionType == MacroEntry.ActionType.CHAT) {
+            // Action field (text/command)
+            actionField = new TextFieldWidget(textRenderer, fieldX + typeW + 2, typeY, fieldW - typeW - 2, 16, Text.literal("Action"));
+            actionField.setMaxLength(256);
+            actionField.setPlaceholder(Text.literal("/command atau teks..."));
+            if (editIndex >= 0) actionField.setText(entries.get(editIndex).getAction());
+            addDrawableChild(actionField);
+        } else {
+            // Swap slot field
+            swapSlotField = new TextFieldWidget(textRenderer, fieldX + typeW + 2, typeY, (fieldW - typeW - 4) / 2, 16, Text.literal("Slot"));
+            swapSlotField.setMaxLength(16);
+            swapSlotField.setPlaceholder(Text.literal("chest/head..."));
+            // Swap keyword field
+            swapKeywordField = new TextFieldWidget(textRenderer, fieldX + typeW + 2 + (fieldW - typeW - 4) / 2 + 2, typeY, (fieldW - typeW - 4) / 2, 16, Text.literal("Item"));
+            swapKeywordField.setMaxLength(32);
+            swapKeywordField.setPlaceholder(Text.literal("elytra/sword..."));
+            if (editIndex >= 0 && entries.get(editIndex).isSwapAction()) {
+                String[] swapParts = entries.get(editIndex).getAction().split(":", 2);
+                if (swapParts.length >= 1) swapSlotField.setText(swapParts[0].trim());
+                if (swapParts.length >= 2) swapKeywordField.setText(swapParts[1].trim());
+            }
+            addDrawableChild(swapSlotField);
+            addDrawableChild(swapKeywordField);
+        }
 
         // Modifier toggles (Ctrl / Alt / Shift)
         pendingKeyCode = (editIndex >= 0) ? entries.get(editIndex).getKeyCode()   : GLFW.GLFW_KEY_UNKNOWN;
@@ -232,6 +271,21 @@ public class MacroManagerScreen extends Screen {
         return Text.literal(active ? "§a[" + name + "]" : "§7" + name);
     }
 
+    private Text actionTypeLabel() {
+        return pendingActionType == MacroEntry.ActionType.CHAT
+                ? Text.literal("§9[CHAT]")
+                : Text.literal("§6[SWAP]");
+    }
+
+    private void toggleActionType() {
+        pendingActionType = (pendingActionType == MacroEntry.ActionType.CHAT)
+                ? MacroEntry.ActionType.SWAP_ITEM
+                : MacroEntry.ActionType.CHAT;
+        // Rebuild edit view untuk update fields
+        clearChildren();
+        initEditView();
+    }
+
     private void updateModButtons() {
         if (ctrlToggle  != null) ctrlToggle.setMessage(modLabel("CTRL",  pendingCtrl));
         if (altToggle   != null) altToggle.setMessage(modLabel("ALT",    pendingAlt));
@@ -258,12 +312,25 @@ public class MacroManagerScreen extends Screen {
     }
 
     private void saveEdit() {
-        if (nameField == null || actionField == null) return;
-        String name   = nameField.getText().trim();
-        String action = actionField.getText().trim();
-        if (name.isEmpty() || action.isEmpty() || pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN) return;
+        if (nameField == null) return;
+        String name = nameField.getText().trim();
+        if (name.isEmpty() || pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN) return;
+
+        String action;
+        if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
+            if (swapSlotField == null || swapKeywordField == null) return;
+            String slot    = swapSlotField.getText().trim();
+            String keyword = swapKeywordField.getText().trim();
+            if (slot.isEmpty() || keyword.isEmpty()) return;
+            action = slot + ":" + keyword;
+        } else {
+            if (actionField == null) return;
+            action = actionField.getText().trim();
+            if (action.isEmpty()) return;
+        }
 
         MacroEntry e = new MacroEntry(name, pendingKeyCode, pendingShift, pendingCtrl, pendingAlt, action);
+        e.setActionType(pendingActionType);
         if (editIndex >= 0 && editIndex < entries.size()) {
             entries.set(editIndex, e);
         } else {
@@ -455,19 +522,31 @@ public class MacroManagerScreen extends Screen {
         int labelX  = cx + 4;
         int fieldX  = cx + 58;
         int startY  = cy + 4;
-        int rowGap  = 28;
+        int rowGap  = 26;
 
         // Labels
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Nama:"),   labelX, startY + 5,         C_LABEL);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Aksi:"),   labelX, startY + rowGap + 5, C_LABEL);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Mod:"),    labelX, startY + rowGap*2+4, C_LABEL);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Key:"),    labelX, startY + rowGap*3+6, C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Nama:"),   labelX, startY + 5,          C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Aksi:"),   labelX, startY + rowGap + 5,  C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Mod:"),    labelX, startY + rowGap*2+4,  C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Key:"),    labelX, startY + rowGap*3+6,  C_LABEL);
+
+        // Swap hint labels
+        if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
+            int typeW = 70;
+            int typeY = startY + rowGap;
+            ctx.drawTextWithShadow(textRenderer, Text.literal("§7slot"), fieldX + typeW + 4, typeY + 4 - 9, 0xAAAAAA);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("§7item"), fieldX + typeW + 4 + (cw - 62 - typeW - 4) / 2 + 2, typeY + 4 - 9, 0xAAAAAA);
+        }
 
         // Tanda * wajib
-        if (nameField   != null && nameField.getText().isEmpty())
+        if (nameField != null && nameField.getText().isEmpty())
             ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + 5, C_WARN);
-        if (actionField != null && actionField.getText().isEmpty())
+        if (pendingActionType == MacroEntry.ActionType.CHAT && actionField != null && actionField.getText().isEmpty())
             ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap + 5, C_WARN);
+        if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
+            if (swapSlotField != null && swapSlotField.getText().isEmpty())
+                ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap + 5, C_WARN);
+        }
         if (pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN)
             ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap*3+6, C_WARN);
 
@@ -531,7 +610,10 @@ public class MacroManagerScreen extends Screen {
 
     // ── Mouse click untuk select row ──────────────────────────────────────────
     @Override
-    public boolean mouseClicked(double mx, double my, int button) {
+    public boolean mouseClicked(Click click, boolean doubled) {
+        double mx = click.x();
+        double my = click.y();
+        int button = click.button();
         if (!editing && button == 0) {
             int listTop = cy + 20;
             for (int i = 0; i < MAX_ROWS; i++) {
@@ -542,7 +624,7 @@ public class MacroManagerScreen extends Screen {
                 }
             }
         }
-        return super.mouseClicked(mx, my, button);
+        return super.mouseClicked(click, doubled);
     }
 
     // ── Scroll wheel ─────────────────────────────────────────────────────────
