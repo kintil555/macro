@@ -103,11 +103,10 @@ public class CustomMacroClient implements ClientModInitializer {
         LOGGER.info("[CustomMacro] Firing '{}': {}", macro.getName(), action);
 
         if (action.startsWith("/")) {
-            // Strip leading slash and send as command via player
-            // sendChatMessage handles both chat and commands (with /)
-            client.player.sendChatMessage(action);
+            // Strip the leading slash and send as command
+            client.player.networkHandler.sendChatCommand(action.substring(1));
         } else {
-            client.player.sendChatMessage(action);
+            client.player.networkHandler.sendChatMessage(action);
         }
     }
 
