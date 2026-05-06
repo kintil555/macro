@@ -14,7 +14,7 @@ import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
-import net.minecraft.client.render.RenderPipelines;
+import net.minecraft.client.gl.RenderPipelines;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
