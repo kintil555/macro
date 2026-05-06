@@ -21,22 +21,14 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Download official Gradle 9.2 wrapper JAR
-        run: |
-          mkdir -p gradle/wrapper
-          curl -fsSL "https://services.gradle.org/distributions/gradle-9.2-wrapper.jar" \
-            -o gradle/wrapper/gradle-wrapper.jar
-          # Verify checksum (official from gradle.org/release-checksums)
-          echo "423cb469ccc0ecc31f0e4e1c309976198ccb734cdcbb7029d4bda0f18f57e8d9  gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
-          echo "Wrapper JAR checksum verified!"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.2'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
       - name: Build mod
-        run: gradle build --no-daemon --stacktrace
+        run: ./gradlew build --no-daemon --stacktrace
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
