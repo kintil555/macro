@@ -153,7 +153,15 @@ public class ItemPickerScreen extends Screen {
             ctx.fill(sx + 1, sy + 1, sx + SLOT_SIZE - 1, sy + SLOT_SIZE - 1, slotBg);
 
             ctx.drawItem(filteredItems.get(i), sx + 1, sy + 1);
-            ctx.drawItemInSlot(textRenderer, filteredItems.get(i), sx + 1, sy + 1);
+            // Render count (drawItemInSlot dihapus di 1.21.4+, kita manual render count)
+            int count = filteredItems.get(i).getCount();
+            if (count > 1) {
+                String countStr = String.valueOf(count);
+                ctx.drawText(textRenderer, countStr,
+                    sx + SLOT_SIZE - 1 - textRenderer.getWidth(countStr),
+                    sy + SLOT_SIZE - 9,
+                    0xFFFFFF, true);
+            }
         }
 
         // Scrollbar

@@ -613,9 +613,10 @@ public class MacroManagerScreen extends Screen {
         // Swap hint labels di atas tombol picker
         if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
             int typeW    = 70;
-            int slotFieldW = 56;
+            int slotFieldW = 64; // harus sama dengan initEditView
+            int _fieldW  = cw - 58; // fieldX = cx + 58
+            int pickerW  = (_fieldW - typeW - 2 - slotFieldW - 2) / 2 - 1;
             int pickerX  = fieldX + typeW + 2 + slotFieldW + 2;
-            int pickerW  = (fieldW - typeW - 2 - slotFieldW - 2) / 2 - 1;
             int typeY    = startY + rowGap;
             ctx.drawTextWithShadow(textRenderer, Text.literal("§7slot"), fieldX + typeW + 4, typeY - 8, 0xAAAAAA);
             ctx.drawTextWithShadow(textRenderer, Text.literal("§aItem A"), pickerX, typeY - 8, 0xAAFFAA);
