@@ -10,10 +10,6 @@ import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Saves/loads macro list to .minecraft/config/custommacro.json
- * Format JSON manual (tanpa library eksternal).
- */
 public class MacroConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger("custommacro");
     private static final String FILE_NAME = "custommacro.json";
@@ -22,7 +18,6 @@ public class MacroConfig {
     public static List<MacroEntry> getMacros() { return macros; }
     public static void setMacros(List<MacroEntry> list) { macros = new ArrayList<>(list); }
 
-    // ── SAVE ─────────────────────────────────────────────────────────────────
     public static void save() {
         Path path = getPath();
         try {
@@ -33,6 +28,9 @@ public class MacroConfig {
                 sb.append("  {\n");
                 sb.append("    \"name\": ").append(jsonStr(e.getName())).append(",\n");
                 sb.append("    \"keyCode\": ").append(e.getKeyCode()).append(",\n");
+                sb.append("    \"modShift\": ").append(e.isModShift()).append(",\n");
+                sb.append("    \"modCtrl\": ").append(e.isModCtrl()).append(",\n");
+                sb.append("    \"modAlt\": ").append(e.isModAlt()).append(",\n");
                 sb.append("    \"action\": ").append(jsonStr(e.getAction())).append("\n");
                 sb.append("  }");
                 if (i < macros.size() - 1) sb.append(",");
@@ -41,24 +39,20 @@ public class MacroConfig {
             sb.append("]");
             Files.writeString(path, sb.toString(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            LOGGER.info("[CustomMacro] Saved {} macro(s) to {}", macros.size(), path);
+            LOGGER.info("[CustomMacro] Saved {} macro(s)", macros.size());
         } catch (Exception e) {
             LOGGER.error("[CustomMacro] Save failed: {}", e.getMessage(), e);
         }
     }
 
-    // ── LOAD ─────────────────────────────────────────────────────────────────
     public static void load() {
         Path path = getPath();
         macros = new ArrayList<>();
-        if (!Files.exists(path)) {
-            LOGGER.info("[CustomMacro] No config file found, starting fresh.");
-            return;
-        }
+        if (!Files.exists(path)) return;
         try {
             String json = Files.readString(path, StandardCharsets.UTF_8).trim();
             macros = parseJsonArray(json);
-            LOGGER.info("[CustomMacro] Loaded {} macro(s) from {}", macros.size(), path);
+            LOGGER.info("[CustomMacro] Loaded {} macro(s)", macros.size());
         } catch (Exception e) {
             LOGGER.error("[CustomMacro] Load failed: {}", e.getMessage(), e);
             macros = new ArrayList<>();
@@ -69,16 +63,13 @@ public class MacroConfig {
         return FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
     }
 
-    // ── JSON helpers ─────────────────────────────────────────────────────────
     private static String jsonStr(String s) {
         if (s == null) return "\"\"";
         return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
-    /** Minimal JSON array parser: baca list of {name, keyCode, action} */
     private static List<MacroEntry> parseJsonArray(String json) {
         List<MacroEntry> result = new ArrayList<>();
-        // Cari setiap object {...}
         int i = 0;
         while (i < json.length()) {
             int objStart = json.indexOf('{', i);
@@ -98,8 +89,11 @@ public class MacroConfig {
             String name    = readStr(obj, "name");
             String action  = readStr(obj, "action");
             int    keyCode = readInt(obj, "keyCode");
+            boolean modShift = readBool(obj, "modShift");
+            boolean modCtrl  = readBool(obj, "modCtrl");
+            boolean modAlt   = readBool(obj, "modAlt");
             if (name == null || action == null) return null;
-            return new MacroEntry(name, keyCode, action);
+            return new MacroEntry(name, keyCode, modShift, modCtrl, modAlt, action);
         } catch (Exception e) {
             LOGGER.warn("[CustomMacro] Skipping malformed entry: {}", e.getMessage());
             return null;
@@ -124,11 +118,8 @@ public class MacroConfig {
                 if (esc == '"') sb.append('"');
                 else if (esc == '\\') sb.append('\\');
                 else sb.append(esc);
-            } else if (c == '"') {
-                break;
-            } else {
-                sb.append(c);
-            }
+            } else if (c == '"') { break; }
+            else { sb.append(c); }
             q2++;
         }
         return sb.toString();
@@ -141,10 +132,20 @@ public class MacroConfig {
         int colon = obj.indexOf(':', ki + pattern.length());
         if (colon < 0) return -1;
         int start = colon + 1;
-        while (start < obj.length() && (obj.charAt(start) == ' ' || obj.charAt(start) == '\n'
-                || obj.charAt(start) == '\r' || obj.charAt(start) == '\t')) start++;
+        while (start < obj.length() && " \n\r\t".indexOf(obj.charAt(start)) >= 0) start++;
         int end = start;
         while (end < obj.length() && (Character.isDigit(obj.charAt(end)) || obj.charAt(end) == '-')) end++;
         return Integer.parseInt(obj.substring(start, end));
+    }
+
+    private static boolean readBool(String obj, String key) {
+        String pattern = "\"" + key + "\"";
+        int ki = obj.indexOf(pattern);
+        if (ki < 0) return false;
+        int colon = obj.indexOf(':', ki + pattern.length());
+        if (colon < 0) return false;
+        int start = colon + 1;
+        while (start < obj.length() && " \n\r\t".indexOf(obj.charAt(start)) >= 0) start++;
+        return obj.startsWith("true", start);
     }
 }

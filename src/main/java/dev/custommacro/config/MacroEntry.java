@@ -1,35 +1,52 @@
 package dev.custommacro.config;
 
-/**
- * Represents a single macro: a key binding + an action (command/text).
- */
 public class MacroEntry {
-    private String name;
-    private int keyCode;      // GLFW key code
-    private String action;    // command or chat text to send
-    private boolean isCommand; // true = send as command (prefix /), false = raw chat
+    private String  name;
+    private int     keyCode;
+    private boolean modShift;
+    private boolean modCtrl;
+    private boolean modAlt;
+    private String  action;
+    private boolean isCommand;
 
     public MacroEntry() {}
 
+    public MacroEntry(String name, int keyCode, boolean modShift, boolean modCtrl, boolean modAlt, String action) {
+        this.name      = name;
+        this.keyCode   = keyCode;
+        this.modShift  = modShift;
+        this.modCtrl   = modCtrl;
+        this.modAlt    = modAlt;
+        this.action    = action;
+        this.isCommand = action != null && action.startsWith("/");
+    }
+
     public MacroEntry(String name, int keyCode, String action) {
-        this.name = name;
-        this.keyCode = keyCode;
-        this.action = action;
-        this.isCommand = action.startsWith("/");
+        this(name, keyCode, false, false, false, action);
     }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public String  getName()          { return name; }
+    public void    setName(String n)  { this.name = n; }
+    public int     getKeyCode()       { return keyCode; }
+    public void    setKeyCode(int k)  { this.keyCode = k; }
+    public boolean isModShift()       { return modShift; }
+    public void    setModShift(boolean v) { modShift = v; }
+    public boolean isModCtrl()        { return modCtrl; }
+    public void    setModCtrl(boolean v)  { modCtrl = v; }
+    public boolean isModAlt()         { return modAlt; }
+    public void    setModAlt(boolean v)   { modAlt = v; }
+    public String  getAction()        { return action; }
+    public void    setAction(String a) { action = a; isCommand = a != null && a.startsWith("/"); }
+    public boolean isCommand()        { return isCommand; }
+    public void    setCommand(boolean c) { isCommand = c; }
 
-    public int getKeyCode() { return keyCode; }
-    public void setKeyCode(int keyCode) { this.keyCode = keyCode; }
-
-    public String getAction() { return action; }
-    public void setAction(String action) {
-        this.action = action;
-        this.isCommand = action.startsWith("/");
+    public String getKeyComboDisplay(java.util.function.IntFunction<String> keyNameFn) {
+        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_UNKNOWN) return "?";
+        StringBuilder sb = new StringBuilder();
+        if (modCtrl)  sb.append("CTRL+");
+        if (modAlt)   sb.append("ALT+");
+        if (modShift) sb.append("SHIFT+");
+        sb.append(keyNameFn.apply(keyCode));
+        return sb.toString();
     }
-
-    public boolean isCommand() { return isCommand; }
-    public void setCommand(boolean command) { isCommand = command; }
 }

@@ -8,38 +8,52 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.input.KeyInput;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Macro Manager GUI — Minecraft style.
- * Layout:
- *  LIST VIEW : scrollable table + [+ Add] [Close]
- *  EDIT VIEW : form fields + [Save] [Cancel]
+ * Macro Manager GUI — Minecraft inventory style.
+ * Mirip inventory Minecraft: background textured, slot-style rows, border batu halus.
  */
 public class MacroManagerScreen extends Screen {
 
-    // ── Ukuran panel ──────────────────────────────────────────────────────────
-    private static final int PANEL_W   = 320;
-    private static final int PANEL_H   = 220;
-    private static final int TITLE_H   = 24;
-    private static final int ROW_H     = 24;
-    private static final int MAX_ROWS  = 5;   // baris visible
-    private static final int BTN_H     = 20;
+    // ── Ukuran panel (mirip inventory MC) ────────────────────────────────────
+    private static final int PANEL_W  = 340;
+    private static final int PANEL_H  = 240;
+    private static final int TITLE_H  = 14;  // tinggi area title di dalam border
+    private static final int ROW_H    = 22;
+    private static final int MAX_ROWS = 7;
+    private static final int BTN_H    = 20;
+    private static final int BORDER   = 8;   // border luar
 
-    // Warna Minecraft style
-    private static final int C_BG         = 0xC0000000; // overlay gelap
-    private static final int C_PANEL      = 0xFF8B8B8B; // stone grey
-    private static final int C_PANEL_DARK = 0xFF373737; // shadow
-    private static final int C_PANEL_LITE = 0xFFFFFFFF; // highlight
-    private static final int C_TITLE_BG   = 0xFF6A6A6A; // header
-    private static final int C_ROW_A      = 0x44000000; // row ganjil
-    private static final int C_ROW_B      = 0x22000000; // row genap
-    private static final int C_INSET      = 0xFF595959; // inset field bg
-    private static final int C_INSET_DARK = 0xFF000000;
+    // ── Warna MC inventory style ──────────────────────────────────────────────
+    // Background overlay gelap
+    private static final int C_OVERLAY   = 0xC0101010;
+    // Panel luar: batu kasar (seperti inventory chest)
+    private static final int C_OUTER     = 0xFF8B8B8B;
+    private static final int C_OUTER_LT  = 0xFFFFFFFF;
+    private static final int C_OUTER_DK  = 0xFF373737;
+    private static final int C_OUTER_MD  = 0xFF5A5A5A;
+    // Panel dalam: sedikit lebih gelap (seperti slot area)
+    private static final int C_INNER     = 0xFF636363;
+    private static final int C_INNER_DK  = 0xFF1A1A1A;
+    private static final int C_INNER_LT  = 0xFF9A9A9A;
+    // Row & header
+    private static final int C_HEADER_BG = 0x88000000;
+    private static final int C_ROW_ODD   = 0x33000000;
+    private static final int C_ROW_EVEN  = 0x11FFFFFF;
+    private static final int C_ROW_SEL   = 0x44FFDD00;
+    // Text
+    private static final int C_TITLE     = 0x404040;
+    private static final int C_COL_HDR   = 0xFFFFAA;
+    private static final int C_NAME_TXT  = 0xFFFFFF;
+    private static final int C_KEY_TXT   = 0xFFDD44;
+    private static final int C_ACT_TXT   = 0xAAFFAA;
+    private static final int C_LABEL     = 0xCCCCCC;
+    private static final int C_EMPTY     = 0x888888;
+    private static final int C_WARN      = 0xFF5555;
 
     // ── State ─────────────────────────────────────────────────────────────────
     private final Screen parent;
@@ -47,18 +61,29 @@ public class MacroManagerScreen extends Screen {
     private boolean editing   = false;
     private int     editIndex = -1;
 
-    // Form widgets
+    // Form fields
     private TextFieldWidget nameField;
     private TextFieldWidget actionField;
     private ButtonWidget    keyBindButton;
     private int     pendingKeyCode = GLFW.GLFW_KEY_UNKNOWN;
+    private boolean pendingShift   = false;
+    private boolean pendingCtrl    = false;
+    private boolean pendingAlt     = false;
     private boolean awaitingKey    = false;
 
-    // Scroll
-    private int scrollOffset = 0;
+    // Modifier toggle buttons (saat edit)
+    private ButtonWidget shiftToggle;
+    private ButtonWidget ctrlToggle;
+    private ButtonWidget altToggle;
 
-    // Panel origin
+    // Scroll & selection
+    private int scrollOffset = 0;
+    private int selectedRow  = -1;
+
+    // Panel origin (dihitung saat init)
     private int px, py;
+    // Content area (di dalam border besar)
+    private int cx, cy, cw, ch;
 
     public MacroManagerScreen(Screen parent) {
         super(Text.translatable("custommacro.title"));
@@ -71,6 +96,12 @@ public class MacroManagerScreen extends Screen {
     protected void init() {
         px = (width  - PANEL_W) / 2;
         py = (height - PANEL_H) / 2;
+        // Content area (di dalam border luar 4px)
+        cx = px + BORDER;
+        cy = py + BORDER + TITLE_H + 4;
+        cw = PANEL_W - BORDER * 2;
+        ch = PANEL_H - BORDER * 2 - TITLE_H - 4;
+
         clearChildren();
         if (!editing) initListView();
         else          initEditView();
@@ -78,139 +109,182 @@ public class MacroManagerScreen extends Screen {
 
     // ─── LIST VIEW ────────────────────────────────────────────────────────────
     private void initListView() {
-        buildRowButtons();
+        int listTop  = cy + 20; // di bawah header kolom
+        int listH    = MAX_ROWS * ROW_H;
+        int bottomY  = cy + ch - BTN_H - 2;
 
-        // [+ Add]  di kanan bawah
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("+ Add Macro"),
-                btn -> openEdit(-1)
-        ).dimensions(px + PANEL_W - 100, py + PANEL_H - 28, 92, BTN_H).build());
-
-        // [Close] di kiri bawah
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("Close"),
-                btn -> close()
-        ).dimensions(px + 8, py + PANEL_H - 28, 60, BTN_H).build());
-    }
-
-    private void buildRowButtons() {
-        int listTop = py + TITLE_H + 24; // di bawah header kolom
+        // Row: Edit & Del buttons
         for (int i = 0; i < MAX_ROWS; i++) {
             int idx = i + scrollOffset;
             if (idx >= entries.size()) break;
             int rowY  = listTop + i * ROW_H;
-            int btnY  = rowY + 3;
+            int btnY  = rowY + (ROW_H - 16) / 2;
             final int fi = idx;
 
-            // [Edit]
-            addDrawableChild(ButtonWidget.builder(
-                    Text.literal("Edit"),
+            addDrawableChild(ButtonWidget.builder(Text.literal("✎"),
                     btn -> openEdit(fi)
-            ).dimensions(px + PANEL_W - 100, btnY, 42, 18).build());
+            ).dimensions(cx + cw - 44, btnY, 20, 16).build());
 
-            // [Del]
-            addDrawableChild(ButtonWidget.builder(
-                    Text.literal("Del"),
+            addDrawableChild(ButtonWidget.builder(Text.literal("✕"),
                     btn -> deleteEntry(fi)
-            ).dimensions(px + PANEL_W - 55, btnY, 36, 18).build());
+            ).dimensions(cx + cw - 22, btnY, 20, 16).build());
         }
 
-        // Tombol scroll (kanan)
-        int scrollX = px + PANEL_W - 16;
-        int scrollTop = listTop;
-        int scrollBot = listTop + MAX_ROWS * ROW_H - 16;
+        // Scroll arrows — di sisi kanan content area
+        int scrollX  = cx + cw - 10;
+        int scrollT  = listTop;
+        int scrollB  = listTop + listH - 12;
 
         addDrawableChild(ButtonWidget.builder(Text.literal("▲"), btn -> {
             scrollOffset = Math.max(0, scrollOffset - 1);
-            rebuildAll();
-        }).dimensions(scrollX, scrollTop, 14, 14).build());
+            selectedRow = -1;
+            rebuildList();
+        }).dimensions(scrollX, scrollT, 12, 12).build());
 
         addDrawableChild(ButtonWidget.builder(Text.literal("▼"), btn -> {
-            int max = Math.max(0, entries.size() - MAX_ROWS);
-            scrollOffset = Math.min(max, scrollOffset + 1);
-            rebuildAll();
-        }).dimensions(scrollX, scrollBot, 14, 14).build());
+            scrollOffset = Math.min(Math.max(0, entries.size() - MAX_ROWS), scrollOffset + 1);
+            selectedRow = -1;
+            rebuildList();
+        }).dimensions(scrollX, scrollB, 12, 12).build());
+
+        // Bottom buttons
+        addDrawableChild(ButtonWidget.builder(Text.literal("+ Tambah"),
+                btn -> openEdit(-1)
+        ).dimensions(cx, bottomY, 80, BTN_H).build());
+
+        addDrawableChild(ButtonWidget.builder(Text.literal("Tutup"),
+                btn -> close()
+        ).dimensions(cx + cw - 60, bottomY, 60, BTN_H).build());
     }
 
-    private void rebuildAll() {
+    private void rebuildList() {
         clearChildren();
-        buildRowButtons();
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("+ Add Macro"), btn -> openEdit(-1)
-        ).dimensions(px + PANEL_W - 100, py + PANEL_H - 28, 92, BTN_H).build());
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("Close"), btn -> close()
-        ).dimensions(px + 8, py + PANEL_H - 28, 60, BTN_H).build());
+        initListView();
     }
 
     // ─── EDIT VIEW ────────────────────────────────────────────────────────────
     private void initEditView() {
-        int fieldX = px + 90;
-        int fieldW = PANEL_W - 98;
+        int labelX  = cx + 4;
+        int fieldX  = cx + 58;
+        int fieldW  = cw - 62;
+        int startY  = cy + 4;
+        int rowGap  = 28;
 
-        // Name
-        nameField = new TextFieldWidget(textRenderer,
-                fieldX, py + 52, fieldW, 18,
-                Text.literal("Name"));
+        // Name field
+        nameField = new TextFieldWidget(textRenderer, fieldX, startY, fieldW, 18, Text.literal("Name"));
         nameField.setMaxLength(32);
-        nameField.setPlaceholder(Text.literal("e.g. Go Home"));
+        nameField.setPlaceholder(Text.literal("Nama macro..."));
         if (editIndex >= 0) nameField.setText(entries.get(editIndex).getName());
         addDrawableChild(nameField);
 
-        // Action
-        actionField = new TextFieldWidget(textRenderer,
-                fieldX, py + 84, fieldW, 18,
-                Text.literal("Action"));
+        // Action field
+        actionField = new TextFieldWidget(textRenderer, fieldX, startY + rowGap, fieldW, 18, Text.literal("Action"));
         actionField.setMaxLength(256);
-        actionField.setPlaceholder(Text.literal("e.g. /home"));
+        actionField.setPlaceholder(Text.literal("/command atau teks..."));
         if (editIndex >= 0) actionField.setText(entries.get(editIndex).getAction());
         addDrawableChild(actionField);
 
-        // Key bind
-        pendingKeyCode = (editIndex >= 0) ? entries.get(editIndex).getKeyCode() : GLFW.GLFW_KEY_UNKNOWN;
-        String kLabel  = (pendingKeyCode != GLFW.GLFW_KEY_UNKNOWN) ? keyName(pendingKeyCode) : "[ Click to bind ]";
-        keyBindButton  = ButtonWidget.builder(
-                Text.literal(kLabel),
-                btn -> { awaitingKey = true; keyBindButton.setMessage(Text.literal("[ Press any key... ]")); }
-        ).dimensions(fieldX, py + 116, fieldW, BTN_H).build();
+        // Modifier toggles (Ctrl / Alt / Shift)
+        pendingKeyCode = (editIndex >= 0) ? entries.get(editIndex).getKeyCode()   : GLFW.GLFW_KEY_UNKNOWN;
+        pendingShift   = (editIndex >= 0) && entries.get(editIndex).isModShift();
+        pendingCtrl    = (editIndex >= 0) && entries.get(editIndex).isModCtrl();
+        pendingAlt     = (editIndex >= 0) && entries.get(editIndex).isModAlt();
+
+        int modY   = startY + rowGap * 2;
+        int modW   = 46;
+        int modGap = 2;
+
+        ctrlToggle = ButtonWidget.builder(modLabel("CTRL", pendingCtrl),
+                btn -> { pendingCtrl = !pendingCtrl; updateModButtons(); }
+        ).dimensions(fieldX, modY, modW, 16).build();
+        addDrawableChild(ctrlToggle);
+
+        altToggle = ButtonWidget.builder(modLabel("ALT", pendingAlt),
+                btn -> { pendingAlt = !pendingAlt; updateModButtons(); }
+        ).dimensions(fieldX + modW + modGap, modY, modW, 16).build();
+        addDrawableChild(altToggle);
+
+        shiftToggle = ButtonWidget.builder(modLabel("SHIFT", pendingShift),
+                btn -> { pendingShift = !pendingShift; updateModButtons(); }
+        ).dimensions(fieldX + (modW + modGap) * 2, modY, modW, 16).build();
+        addDrawableChild(shiftToggle);
+
+        // Keybind button
+        int keyY = startY + rowGap * 3;
+        String kLabel = buildKeyLabel();
+        keyBindButton = ButtonWidget.builder(Text.literal(kLabel),
+                btn -> { awaitingKey = true; keyBindButton.setMessage(Text.literal("[ Tekan tombol... ]")); }
+        ).dimensions(fieldX, keyY, fieldW, BTN_H).build();
         addDrawableChild(keyBindButton);
 
         // Save / Cancel
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("Save"), btn -> saveEdit()
-        ).dimensions(px + PANEL_W - 118, py + PANEL_H - 28, 54, BTN_H).build());
+        int bottomY = cy + ch - BTN_H - 2;
+        addDrawableChild(ButtonWidget.builder(Text.literal("Simpan"),
+                btn -> saveEdit()
+        ).dimensions(cx + cw - 122, bottomY, 58, BTN_H).build());
 
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("Cancel"),
+        addDrawableChild(ButtonWidget.builder(Text.literal("Batal"),
                 btn -> { editing = false; editIndex = -1; init(); }
-        ).dimensions(px + PANEL_W - 60, py + PANEL_H - 28, 52, BTN_H).build());
+        ).dimensions(cx + cw - 62, bottomY, 62, BTN_H).build());
+    }
+
+    private Text modLabel(String name, boolean active) {
+        return Text.literal(active ? "§a[" + name + "]" : "§7" + name);
+    }
+
+    private void updateModButtons() {
+        if (ctrlToggle  != null) ctrlToggle.setMessage(modLabel("CTRL",  pendingCtrl));
+        if (altToggle   != null) altToggle.setMessage(modLabel("ALT",    pendingAlt));
+        if (shiftToggle != null) shiftToggle.setMessage(modLabel("SHIFT", pendingShift));
+        if (keyBindButton != null && !awaitingKey)
+            keyBindButton.setMessage(Text.literal(buildKeyLabel()));
+    }
+
+    private String buildKeyLabel() {
+        if (pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN) return "[ Klik untuk bind... ]";
+        StringBuilder sb = new StringBuilder();
+        if (pendingCtrl)  sb.append("CTRL+");
+        if (pendingAlt)   sb.append("ALT+");
+        if (pendingShift) sb.append("SHIFT+");
+        sb.append(keyName(pendingKeyCode));
+        return sb.toString();
     }
 
     // ── Logic ─────────────────────────────────────────────────────────────────
     private void openEdit(int idx) {
-        editing = true; editIndex = idx; init();
+        editing   = true;
+        editIndex = idx;
+        init();
     }
 
     private void saveEdit() {
+        if (nameField == null || actionField == null) return;
         String name   = nameField.getText().trim();
         String action = actionField.getText().trim();
         if (name.isEmpty() || action.isEmpty() || pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN) return;
-        MacroEntry e = new MacroEntry(name, pendingKeyCode, action);
-        if (editIndex < 0 || editIndex >= entries.size()) entries.add(e);
-        else entries.set(editIndex, e);
+
+        MacroEntry e = new MacroEntry(name, pendingKeyCode, pendingShift, pendingCtrl, pendingAlt, action);
+        if (editIndex >= 0 && editIndex < entries.size()) {
+            entries.set(editIndex, e);
+        } else {
+            entries.add(e);
+        }
         MacroConfig.setMacros(entries);
         MacroConfig.save();
-        editing = false; editIndex = -1; init();
+        editing   = false;
+        editIndex = -1;
+        init();
     }
 
     private void deleteEntry(int idx) {
-        if (idx < 0 || idx >= entries.size()) return;
-        entries.remove(idx);
-        scrollOffset = Math.max(0, Math.min(scrollOffset, entries.size() - MAX_ROWS));
-        if (scrollOffset < 0) scrollOffset = 0;
-        MacroConfig.setMacros(entries);
-        MacroConfig.save();
-        rebuildAll();
+        if (idx >= 0 && idx < entries.size()) {
+            entries.remove(idx);
+            MacroConfig.setMacros(entries);
+            MacroConfig.save();
+            scrollOffset = Math.max(0, Math.min(scrollOffset, entries.size() - MAX_ROWS));
+            selectedRow  = -1;
+        }
+        rebuildList();
     }
 
     // ── Key handling ──────────────────────────────────────────────────────────
@@ -220,12 +294,18 @@ public class MacroManagerScreen extends Screen {
         if (awaitingKey) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 awaitingKey = false;
-                keyBindButton.setMessage(Text.literal(keyName(pendingKeyCode)));
+                keyBindButton.setMessage(Text.literal(buildKeyLabel()));
+                return true;
+            }
+            // Jangan capture modifier saja sebagai main key
+            if (keyCode == GLFW.GLFW_KEY_LEFT_SHIFT  || keyCode == GLFW.GLFW_KEY_RIGHT_SHIFT  ||
+                keyCode == GLFW.GLFW_KEY_LEFT_CONTROL || keyCode == GLFW.GLFW_KEY_RIGHT_CONTROL||
+                keyCode == GLFW.GLFW_KEY_LEFT_ALT     || keyCode == GLFW.GLFW_KEY_RIGHT_ALT) {
                 return true;
             }
             pendingKeyCode = keyCode;
             awaitingKey    = false;
-            keyBindButton.setMessage(Text.literal(keyName(keyCode)));
+            keyBindButton.setMessage(Text.literal(buildKeyLabel()));
             return true;
         }
         return super.keyPressed(input);
@@ -234,115 +314,177 @@ public class MacroManagerScreen extends Screen {
     // ── Render ────────────────────────────────────────────────────────────────
     @Override
     public void renderBackground(DrawContext ctx, int mx, int my, float delta) {
-        ctx.fill(0, 0, width, height, C_BG);
+        // Gelap tipis di belakang
+        ctx.fill(0, 0, width, height, C_OVERLAY);
     }
 
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
         renderBackground(ctx, mx, my, delta);
-        drawPanel(ctx);
-        if (!editing) renderListView(ctx);
+        drawInventoryPanel(ctx);
+        if (!editing) renderListView(ctx, mx, my);
         else          renderEditView(ctx);
         super.render(ctx, mx, my, delta);
     }
 
-    /** Gambar panel batu Minecraft: raised border + inset title */
-    private void drawPanel(DrawContext ctx) {
-        // Shadow luar
-        ctx.fill(px + 2, py + 2, px + PANEL_W + 2, py + PANEL_H + 2, 0x88000000);
+    /**
+     * Gambar panel ala inventory Minecraft:
+     * - Border luar raised (3D batu)
+     * - Area dalam inset (lebih gelap, seperti slot area)
+     * - Title bar di atas dengan teks bayangan
+     */
+    private void drawInventoryPanel(DrawContext ctx) {
+        int x = px, y = py, w = PANEL_W, h = PANEL_H;
 
-        // Panel utama (abu batu)
-        ctx.fill(px, py, px + PANEL_W, py + PANEL_H, C_PANEL);
+        // ── Layer 1: Shadow luar ─────────────────────────────────────────────
+        ctx.fill(x + 3, y + 3, x + w + 3, y + h + 3, 0x55000000);
 
-        // Raised border: highlight atas+kiri, shadow bawah+kanan
-        ctx.fill(px, py, px + PANEL_W, py + 2, C_PANEL_LITE);          // top
-        ctx.fill(px, py, px + 2, py + PANEL_H, C_PANEL_LITE);          // left
-        ctx.fill(px, py + PANEL_H - 2, px + PANEL_W, py + PANEL_H, C_PANEL_DARK); // bottom
-        ctx.fill(px + PANEL_W - 2, py, px + PANEL_W, py + PANEL_H, C_PANEL_DARK); // right
+        // ── Layer 2: Bodi panel abu-abu batu ─────────────────────────────────
+        ctx.fill(x, y, x + w, y + h, C_OUTER);
 
-        // Title bar (inset, lebih gelap)
-        ctx.fill(px + 2, py + 2, px + PANEL_W - 2, py + TITLE_H, C_TITLE_BG);
-        // Garis pemisah bawah title
-        ctx.fill(px + 2, py + TITLE_H, px + PANEL_W - 2, py + TITLE_H + 1, C_PANEL_DARK);
-        ctx.fill(px + 2, py + TITLE_H + 1, px + PANEL_W - 2, py + TITLE_H + 2, C_PANEL_LITE);
+        // ── Layer 3: Raised border 3px (atas+kiri terang, bawah+kanan gelap) ─
+        // Atas terang (2px)
+        ctx.fill(x, y,         x + w, y + 2,     C_OUTER_LT);
+        // Kiri terang (2px)
+        ctx.fill(x, y,         x + 2, y + h,     C_OUTER_LT);
+        // Bawah gelap (2px)
+        ctx.fill(x, y + h - 2, x + w, y + h,     C_OUTER_DK);
+        // Kanan gelap (2px)
+        ctx.fill(x + w - 2, y, x + w, y + h,     C_OUTER_DK);
+        // Garis medium di tengah border (seperti MC)
+        ctx.fill(x + 2, y + 2, x + w - 2, y + 3,     C_OUTER_MD);
+        ctx.fill(x + 2, y + 2, x + 3,     y + h - 2, C_OUTER_MD);
+        ctx.fill(x + 2, y + h - 3, x + w - 2, y + h - 2, C_OUTER_MD);
+        ctx.fill(x + w - 3, y + 2, x + w - 2, y + h - 2, C_OUTER_MD);
 
-        // Title text
-        ctx.drawCenteredTextWithShadow(textRenderer,
-                Text.translatable("custommacro.title"),
-                px + PANEL_W / 2, py + 7, 0xFFFFFF);
+        // ── Layer 4: Area konten dalam (inset effect) ─────────────────────────
+        int ix = x + BORDER - 2, iy = y + BORDER - 2;
+        int iw = w - (BORDER - 2) * 2, ih = h - (BORDER - 2) * 2;
+        // Border dalam: atas+kiri gelap, bawah+kanan terang (inset/sunken look)
+        ctx.fill(ix, iy,           ix + iw, iy + 2,     C_INNER_DK);
+        ctx.fill(ix, iy,           ix + 2,  iy + ih,    C_INNER_DK);
+        ctx.fill(ix, iy + ih - 2,  ix + iw, iy + ih,    C_INNER_LT);
+        ctx.fill(ix + iw - 2, iy,  ix + iw, iy + ih,    C_INNER_LT);
+        // Isi dalam
+        ctx.fill(ix + 2, iy + 2, ix + iw - 2, iy + ih - 2, C_INNER);
 
-        // Garis pemisah atas tombol bawah
-        ctx.fill(px + 2, py + PANEL_H - 34, px + PANEL_W - 2, py + PANEL_H - 33, C_PANEL_DARK);
-        ctx.fill(px + 2, py + PANEL_H - 33, px + PANEL_W - 2, py + PANEL_H - 32, C_PANEL_LITE);
+        // ── Layer 5: Title bar ────────────────────────────────────────────────
+        int ty = y + BORDER - 2;
+        ctx.fill(ix + 2, ty + 2, ix + iw - 2, ty + TITLE_H + 2, 0xFF555555);
+        // Garis bawah title
+        ctx.fill(ix + 2, ty + TITLE_H + 2,     ix + iw - 2, ty + TITLE_H + 3, C_INNER_DK);
+        ctx.fill(ix + 2, ty + TITLE_H + 3,     ix + iw - 2, ty + TITLE_H + 4, C_INNER_LT);
+
+        // Title text (bayangan kecil, warna kuning gelap seperti chest label MC)
+        String titleStr = editing
+                ? (editIndex < 0 ? "Macro Baru" : "Edit Macro")
+                : "Custom Macro";
+        ctx.drawTextWithShadow(textRenderer, Text.literal(titleStr),
+                ix + 6, ty + (TITLE_H - 8) / 2 + 2, 0xFFFFAA);
+
+        // ── Layer 6: Garis pemisah bawah (atas area tombol bawah) ────────────
+        int sepY = y + h - BORDER - BTN_H - 6;
+        ctx.fill(ix + 2, sepY,     ix + iw - 2, sepY + 1, C_INNER_DK);
+        ctx.fill(ix + 2, sepY + 1, ix + iw - 2, sepY + 2, C_INNER_LT);
     }
 
-    private void renderListView(DrawContext ctx) {
-        int listTop = py + TITLE_H + 24;
+    // ── Render List ───────────────────────────────────────────────────────────
+    private void renderListView(DrawContext ctx, int mx, int my) {
+        int listTop = cy + 20;
+        int colKey  = cx + 130;
+        int colAct  = cx + 200;
+        int colBtn  = cx + cw - 46;
 
         // Header kolom
-        ctx.fill(px + 2, py + TITLE_H + 2, px + PANEL_W - 2, py + TITLE_H + 22, 0x44000000);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Macro Name"), px + 10,  py + TITLE_H + 6, 0xFFFFAA);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Key"),        px + 148, py + TITLE_H + 6, 0xFFFFAA);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Action"),     px + 196, py + TITLE_H + 6, 0xFFFFAA);
+        ctx.fill(cx, cy + 2, cx + cw, cy + 18, C_HEADER_BG);
+        // Baris bawah header
+        ctx.fill(cx, cy + 18, cx + cw, cy + 19, 0xFF1A1A1A);
+        ctx.fill(cx, cy + 19, cx + cw, cy + 20, 0xFF9A9A9A);
+
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Nama"),   cx + 4,   cy + 6, C_COL_HDR);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Tombol"), colKey,   cy + 6, C_COL_HDR);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Aksi"),   colAct,   cy + 6, C_COL_HDR);
 
         if (entries.isEmpty()) {
             ctx.drawCenteredTextWithShadow(textRenderer,
-                    Text.translatable("custommacro.label.empty"),
-                    px + PANEL_W / 2, listTop + MAX_ROWS * ROW_H / 2 - 4, 0x888888);
+                    Text.literal("Belum ada macro. Klik + Tambah!"),
+                    cx + cw / 2, listTop + MAX_ROWS * ROW_H / 2 - 4, C_EMPTY);
         } else {
             for (int i = 0; i < MAX_ROWS; i++) {
                 int idx = i + scrollOffset;
                 if (idx >= entries.size()) break;
-                MacroEntry e = entries.get(idx);
-                int rowY = listTop + i * ROW_H;
+                MacroEntry e  = entries.get(idx);
+                int rowY       = listTop + i * ROW_H;
+                boolean isHov  = mx >= cx && mx <= cx + cw - 12
+                              && my >= rowY && my < rowY + ROW_H;
+                boolean isSel  = selectedRow == idx;
 
-                // Row bg alternating
-                ctx.fill(px + 2, rowY, px + PANEL_W - 18, rowY + ROW_H - 2,
-                        (i % 2 == 0) ? C_ROW_A : C_ROW_B);
+                // Row background
+                int rowColor = isHov ? C_ROW_SEL : (isSel ? 0x33FFAA00 : (i % 2 == 0 ? C_ROW_ODD : C_ROW_EVEN));
+                ctx.fill(cx, rowY, cx + cw - 12, rowY + ROW_H - 1, rowColor);
+                // Garis tipis bawah row
+                ctx.fill(cx, rowY + ROW_H - 1, cx + cw - 12, rowY + ROW_H, 0x22000000);
+
+                int textY = rowY + (ROW_H - 8) / 2;
+                ctx.drawTextWithShadow(textRenderer,
+                        Text.literal(truncate(e.getName(), 12)),
+                        cx + 4, textY, C_NAME_TXT);
+
+                String combo = e.getKeyComboDisplay(k -> keyName(k));
+                ctx.drawTextWithShadow(textRenderer,
+                        Text.literal(truncate(combo, 10)),
+                        colKey, textY, C_KEY_TXT);
 
                 ctx.drawTextWithShadow(textRenderer,
-                        Text.literal(truncate(e.getName(), 14)),   px + 10,  rowY + 8, 0xFFFFFF);
-                ctx.drawTextWithShadow(textRenderer,
-                        Text.literal("[" + keyName(e.getKeyCode()) + "]"), px + 148, rowY + 8, 0xFFDD44);
-                ctx.drawTextWithShadow(textRenderer,
-                        Text.literal(truncate(e.getAction(), 10)), px + 196, rowY + 8, 0xAAFFAA);
+                        Text.literal(truncate(e.getAction(), 8)),
+                        colAct, textY, C_ACT_TXT);
             }
         }
 
-        // Info scroll
-        int total = entries.size();
-        if (total > MAX_ROWS) {
-            String info = (scrollOffset + 1) + "-"
-                    + Math.min(total, scrollOffset + MAX_ROWS) + "/" + total;
-            ctx.drawTextWithShadow(textRenderer, Text.literal(info),
-                    px + 70, py + PANEL_H - 24, 0x888888);
+        // Scroll info
+        if (entries.size() > MAX_ROWS) {
+            int vis = Math.min(entries.size(), scrollOffset + MAX_ROWS);
+            ctx.drawTextWithShadow(textRenderer,
+                    Text.literal((scrollOffset + 1) + "-" + vis + "/" + entries.size()),
+                    cx + cw / 2 - 15, cy + ch - BTN_H - 14, 0x888888);
         }
     }
 
+    // ── Render Edit ───────────────────────────────────────────────────────────
     private void renderEditView(DrawContext ctx) {
-        // Sub-title
-        String sub = (editIndex < 0) ? "New Macro" : "Edit Macro";
-        ctx.drawCenteredTextWithShadow(textRenderer, Text.literal(sub),
-                px + PANEL_W / 2, py + TITLE_H + 6, 0xFFDD88);
+        int labelX  = cx + 4;
+        int fieldX  = cx + 58;
+        int startY  = cy + 4;
+        int rowGap  = 28;
 
-        // Label fields
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Name:"),   px + 12, py + 55,  0xCCCCCC);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Action:"), px + 12, py + 87,  0xCCCCCC);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Key:"),    px + 12, py + 119, 0xCCCCCC);
+        // Labels
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Nama:"),   labelX, startY + 5,         C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Aksi:"),   labelX, startY + rowGap + 5, C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Mod:"),    labelX, startY + rowGap*2+4, C_LABEL);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Key:"),    labelX, startY + rowGap*3+6, C_LABEL);
 
-        // Tanda wajib merah kalau kosong
+        // Tanda * wajib
         if (nameField   != null && nameField.getText().isEmpty())
-            ctx.drawTextWithShadow(textRenderer, Text.literal("*"), px + 80, py + 55, 0xFF4444);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + 5, C_WARN);
         if (actionField != null && actionField.getText().isEmpty())
-            ctx.drawTextWithShadow(textRenderer, Text.literal("*"), px + 80, py + 87, 0xFF4444);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap + 5, C_WARN);
         if (pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN)
-            ctx.drawTextWithShadow(textRenderer, Text.literal("*"), px + 80, py + 119, 0xFF4444);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap*3+6, C_WARN);
 
-        // Hint saat awaiting key
-        if (awaitingKey)
+        // Hint awaiting key
+        if (awaitingKey) {
+            ctx.fill(cx, cy + ch - 36, cx + cw, cy + ch - 26, 0x88FF8800);
             ctx.drawCenteredTextWithShadow(textRenderer,
-                    Text.literal("Press a key  (ESC = cancel)"),
-                    px + PANEL_W / 2, py + 148, 0xFFAA00);
+                    Text.literal("Tekan tombol... (ESC = batal)"),
+                    cx + cw / 2, cy + ch - 34, 0xFFDD00);
+        }
+
+        // Info combo yang sudah dipilih
+        if (!awaitingKey && pendingKeyCode != GLFW.GLFW_KEY_UNKNOWN) {
+            ctx.drawTextWithShadow(textRenderer,
+                    Text.literal("▶ " + buildKeyLabel()),
+                    cx + 4, cy + ch - 36, 0x88FFFF);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -355,10 +497,17 @@ public class MacroManagerScreen extends Screen {
             case GLFW.GLFW_KEY_BACKSPACE     -> "BKSP";
             case GLFW.GLFW_KEY_ENTER         -> "ENTER";
             case GLFW.GLFW_KEY_TAB           -> "TAB";
-            case GLFW.GLFW_KEY_UP            -> "UP";
-            case GLFW.GLFW_KEY_DOWN          -> "DOWN";
-            case GLFW.GLFW_KEY_LEFT          -> "LEFT";
-            case GLFW.GLFW_KEY_RIGHT         -> "RIGHT";
+            case GLFW.GLFW_KEY_UP            -> "↑";
+            case GLFW.GLFW_KEY_DOWN          -> "↓";
+            case GLFW.GLFW_KEY_LEFT          -> "←";
+            case GLFW.GLFW_KEY_RIGHT         -> "→";
+            case GLFW.GLFW_KEY_ESCAPE        -> "ESC";
+            case GLFW.GLFW_KEY_DELETE        -> "DEL";
+            case GLFW.GLFW_KEY_INSERT        -> "INS";
+            case GLFW.GLFW_KEY_HOME          -> "HOME";
+            case GLFW.GLFW_KEY_END           -> "END";
+            case GLFW.GLFW_KEY_PAGE_UP       -> "PGUP";
+            case GLFW.GLFW_KEY_PAGE_DOWN     -> "PGDN";
             case GLFW.GLFW_KEY_F1            -> "F1";
             case GLFW.GLFW_KEY_F2            -> "F2";
             case GLFW.GLFW_KEY_F3            -> "F3";
@@ -371,18 +520,6 @@ public class MacroManagerScreen extends Screen {
             case GLFW.GLFW_KEY_F10           -> "F10";
             case GLFW.GLFW_KEY_F11           -> "F11";
             case GLFW.GLFW_KEY_F12           -> "F12";
-            case GLFW.GLFW_KEY_INSERT        -> "INS";
-            case GLFW.GLFW_KEY_DELETE        -> "DEL";
-            case GLFW.GLFW_KEY_HOME          -> "HOME";
-            case GLFW.GLFW_KEY_END           -> "END";
-            case GLFW.GLFW_KEY_PAGE_UP       -> "PGUP";
-            case GLFW.GLFW_KEY_PAGE_DOWN     -> "PGDN";
-            case GLFW.GLFW_KEY_LEFT_SHIFT    -> "LSHIFT";
-            case GLFW.GLFW_KEY_RIGHT_SHIFT   -> "RSHIFT";
-            case GLFW.GLFW_KEY_LEFT_CONTROL  -> "LCTRL";
-            case GLFW.GLFW_KEY_RIGHT_CONTROL -> "RCTRL";
-            case GLFW.GLFW_KEY_LEFT_ALT      -> "LALT";
-            case GLFW.GLFW_KEY_RIGHT_ALT     -> "RALT";
             default -> "K" + k;
         };
     }
@@ -390,6 +527,35 @@ public class MacroManagerScreen extends Screen {
     private static String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() > max ? s.substring(0, max - 1) + "…" : s;
+    }
+
+    // ── Mouse click untuk select row ──────────────────────────────────────────
+    @Override
+    public boolean mouseClicked(double mx, double my, int button) {
+        if (!editing && button == 0) {
+            int listTop = cy + 20;
+            for (int i = 0; i < MAX_ROWS; i++) {
+                int rowY = listTop + i * ROW_H;
+                if (mx >= cx && mx <= cx + cw - 12 && my >= rowY && my < rowY + ROW_H) {
+                    selectedRow = i + scrollOffset;
+                    break;
+                }
+            }
+        }
+        return super.mouseClicked(mx, my, button);
+    }
+
+    // ── Scroll wheel ─────────────────────────────────────────────────────────
+    @Override
+    public boolean mouseScrolled(double mx, double my, double hAmount, double vAmount) {
+        if (!editing) {
+            if (vAmount < 0) scrollOffset = Math.min(Math.max(0, entries.size() - MAX_ROWS), scrollOffset + 1);
+            else             scrollOffset = Math.max(0, scrollOffset - 1);
+            selectedRow = -1;
+            rebuildList();
+            return true;
+        }
+        return super.mouseScrolled(mx, my, hAmount, vAmount);
     }
 
     @Override public boolean shouldPause() { return false; }
