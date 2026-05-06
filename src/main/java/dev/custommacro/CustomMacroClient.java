@@ -142,69 +142,65 @@ public class CustomMacroClient implements ClientModInitializer {
     /**
      * Swap item di inventory dengan item yang sedang ada di slot target.
      *
-     * Format action: "SLOT_TARGET:ITEM_KEYWORD"
-     * Contoh: "chest:elytra"  -> cari elytra di inventory, swap ke slot chest armor
-     *         "hotbar0:sword" -> cari sword di inventory, swap ke hotbar slot 0
+     * Format action: "slotName|translationKeyA|translationKeyB"
+     * Contoh: "chest|item.minecraft.elytra|item.minecraft.diamond_chestplate"
      *
-     * Slot target: chest, head, legs, feet, hotbar0..hotbar8, offhand
+     * Logika toggle:
+     * - Kalau slot target berisi item A → pasang item B ke sana
+     * - Kalau slot target berisi item B atau kosong → pasang item A ke sana
      */
     private void executeSwap(MinecraftClient client, String swapTarget) {
         if (client.player == null || client.interactionManager == null) return;
 
         // Format: "slotName|itemKeyA|itemKeyB"
-        // Contoh: "chest|minecraft:elytra|minecraft:diamond_chestplate"
         String[] parts = swapTarget.split("\\|", 3);
         if (parts.length != 3) {
-            LOGGER.warn("[CustomMacro] Format swap salah: {}", swapTarget);
+            LOGGER.warn("[CustomMacro] Format swap salah (butuh 3 bagian): {}", swapTarget);
             return;
         }
 
         String slotName = parts[0].trim().toLowerCase();
-        String itemKeyA = parts[1].trim();
+        String itemKeyA = parts[1].trim(); // translation key penuh
         String itemKeyB = parts[2].trim();
-        PlayerInventory inv = client.player.getInventory();
 
-        // Resolve slot index
+        if (itemKeyA.isEmpty() || itemKeyB.isEmpty()) {
+            LOGGER.warn("[CustomMacro] Item key kosong: '{}' / '{}'", itemKeyA, itemKeyB);
+            return;
+        }
+
         int targetSlot = resolveSlot(slotName);
         if (targetSlot < 0) {
             LOGGER.warn("[CustomMacro] Slot tidak dikenal: {}", slotName);
             return;
         }
 
-        // Cek item apa yang sekarang ada di slot target
-        ItemStack current = inv.getStack(targetSlot);
-        String currentKey = current.isEmpty() ? "" : current.getItem().getTranslationKey();
+        PlayerInventory inv = client.player.getInventory();
 
-        // Tentukan item mana yang harus dicari di inventory:
-        // Kalau slot target sudah berisi item A → cari item B, swap ke slot target
-        // Kalau slot target berisi item B (atau kosong) → cari item A, swap ke slot target
-        String searchKey = currentKey.contains(itemKeyA.replace("minecraft:", "").replace("item.", "").replace("block.", ""))
-                ? itemKeyB
-                : itemKeyA;
+        // Cek item yang SEKARANG ada di slot target (exact match)
+        ItemStack currentInSlot = inv.getStack(targetSlot);
+        String currentKey = currentInSlot.isEmpty() ? "" : currentInSlot.getItem().getTranslationKey();
 
-        // Cari searchKey di inventory (semua slot kecuali targetSlot)
+        // Toggle: slot berisi A → cari B, lainnya → cari A
+        String wantKey = currentKey.equals(itemKeyA) ? itemKeyB : itemKeyA;
+
+        // Cari wantKey di seluruh inventory (kecuali targetSlot)
         int foundSlot = -1;
         for (int i = 0; i < inv.size(); i++) {
             if (i == targetSlot) continue;
             ItemStack stack = inv.getStack(i);
-            if (!stack.isEmpty()) {
-                String key = stack.getItem().getTranslationKey();
-                String display = stack.getName().getString().toLowerCase();
-                String search = searchKey.toLowerCase();
-                if (key.contains(search) || display.contains(search)) {
-                    foundSlot = i;
-                    break;
-                }
+            if (!stack.isEmpty() && stack.getItem().getTranslationKey().equals(wantKey)) {
+                foundSlot = i;
+                break;
             }
         }
 
         if (foundSlot == -1) {
-            LOGGER.info("[CustomMacro] Item '{}' tidak ditemukan di inventory", searchKey);
+            LOGGER.info("[CustomMacro] Item '{}' tidak ada di inventory", wantKey);
             return;
         }
 
-        LOGGER.info("[CustomMacro] Toggle swap: slot {}({}) <-> slot {}",
-                targetSlot, slotName, foundSlot);
+        LOGGER.info("[CustomMacro] Swap: inv[{}]('{}') <-> inv[{}]('{}')",
+                foundSlot, wantKey, targetSlot, currentKey.isEmpty() ? "kosong" : currentKey);
         doInventorySwap(client, foundSlot, targetSlot);
     }
 
