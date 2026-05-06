@@ -106,7 +106,7 @@ public class ItemPickerScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
-        // Overlay gelap
+        // Overlay + panel backgrounds (shapes only, no text yet)
         ctx.fill(0, 0, width, height, 0xB0000000);
 
         // Panel background
@@ -116,12 +116,9 @@ public class ItemPickerScreen extends Screen {
         ctx.fill(px,           py + ph - 2,  px + pw,     py + ph,     0xFF373737);
         ctx.fill(px + pw - 2,  py,           px + pw,     py + ph,     0xFF373737);
 
-        // Title bar
+        // Title bar background
         int ty = py + 2;
         ctx.fill(px + 2, ty, px + pw - 2, ty + TITLE_H, 0xFF555555);
-        ctx.drawTextWithShadow(textRenderer,
-                Text.literal("Pilih " + label + " — klik item"),
-                px + 6, ty + (TITLE_H - 8) / 2, 0xFFFFAA);
 
         // Grid area background
         int gridW = COLS * SLOT_SIZE;
@@ -143,7 +140,7 @@ public class ItemPickerScreen extends Screen {
             boolean hov = mx >= sx && mx < sx + SLOT_SIZE && my >= sy && my < sy + SLOT_SIZE;
             if (hov) hoveredIdx = i;
 
-            // Slot border (inset)
+            // Slot border 3D
             ctx.fill(sx, sy, sx + SLOT_SIZE, sy + 1, 0xFF1A1A1A);
             ctx.fill(sx, sy, sx + 1, sy + SLOT_SIZE, 0xFF1A1A1A);
             ctx.fill(sx, sy + SLOT_SIZE - 1, sx + SLOT_SIZE, sy + SLOT_SIZE, 0xFF9A9A9A);
@@ -153,7 +150,7 @@ public class ItemPickerScreen extends Screen {
             ctx.fill(sx + 1, sy + 1, sx + SLOT_SIZE - 1, sy + SLOT_SIZE - 1, slotBg);
 
             ctx.drawItem(filteredItems.get(i), sx + 1, sy + 1);
-            // Render count (drawItemInSlot dihapus di 1.21.4+, kita manual render count)
+            // Render count (drawItemInSlot dihapus di 1.21.4+)
             int count = filteredItems.get(i).getCount();
             if (count > 1) {
                 String countStr = String.valueOf(count);
@@ -176,25 +173,24 @@ public class ItemPickerScreen extends Screen {
             ctx.fill(sbX + 1, thumbY, sbX + 7, thumbY + thumbH, 0xFFAAAAAA);
         }
 
-        // Kosong hint
-        if (filteredItems.isEmpty()) {
-            ctx.drawCenteredTextWithShadow(textRenderer,
-                    Text.literal("§7Tidak ada item ditemukan"),
-                    px + pw / 2, gridTop + VISIBLE_ROWS * SLOT_SIZE / 2 - 4, 0x888888);
-        }
+        // Super.render() renders widgets (search field, buttons)
+        super.render(ctx, mx, my, delta);
+
+        // Text drawn AFTER super so it appears on top
+        ctx.drawTextWithShadow(textRenderer,
+                Text.literal("Pilih " + label + " — klik item"),
+                px + 6, ty + (TITLE_H - 8) / 2, 0xFFFFAA);
 
         // Info jumlah item
         ctx.drawTextWithShadow(textRenderer,
                 Text.literal("§7" + filteredItems.size() + " item"),
                 px + PADDING, py + ph - 30, 0x888888);
 
-        // Tooltip hover
+        // Tooltip hover (must be last)
         if (hoveredIdx >= 0 && hoveredIdx < filteredItems.size()) {
             ItemStack stack = filteredItems.get(hoveredIdx);
             ctx.drawItemTooltip(textRenderer, stack, mx, my);
         }
-
-        super.render(ctx, mx, my, delta);
     }
 
     @Override

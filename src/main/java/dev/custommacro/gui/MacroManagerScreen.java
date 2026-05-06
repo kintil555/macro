@@ -429,11 +429,16 @@ public class MacroManagerScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mx, int my, float delta) {
+        // 1. Background overlay
         renderBackground(ctx, mx, my, delta);
+        // 2. Panel frame + content background (behind widgets)
         drawPanel(ctx);
+        // 3. Super renders widgets (buttons, text fields)
+        super.render(ctx, mx, my, delta);
+        // 4. Text labels drawn AFTER super so they appear on top of backgrounds
+        //    but textRenderer is guaranteed ready after super.render()
         if (!editing) renderListView(ctx, mx, my);
         else          renderEditView(ctx);
-        super.render(ctx, mx, my, delta);
     }
 
     /** Draw the outer panel frame + title bar. */
