@@ -5,11 +5,9 @@ import dev.custommacro.config.MacroEntry;
 import dev.custommacro.gui.MacroManagerScreen;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
@@ -23,44 +21,31 @@ import java.util.Set;
 
 /**
  * Main client-side entry point for CustomMacro mod (Minecraft 1.21.11).
+ *
+ * Overlay button (◉) only appears in the Pause Menu (top-left corner).
+ * In-game mouse click is handled by MouseHandlerMixin — no GLFW callback override.
  */
 public class CustomMacroClient implements ClientModInitializer {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("custommacro");
 
-    private static final int BTN_X    = 5;
-    private static final int BTN_Y    = 5;
-    private static final int BTN_SIZE = 18;
+    // Overlay button geometry — used by both pause menu and MouseHandlerMixin
+    public static final int BTN_X    = 5;
+    public static final int BTN_Y    = 5;
+    public static final int BTN_SIZE = 18;
 
     private final Set<Integer> heldKeys = new HashSet<>();
-    private boolean mouseCallbackRegistered = false;
 
     @Override
     public void onInitializeClient() {
         LOGGER.info("[CustomMacro] Initializing...");
         MacroConfig.load();
 
-        // ── 1. Tick: fire macros ──────────────────────────────────────────────
+        // ── 1. Tick: fire macros on key press ─────────────────────────────────
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (client.currentScreen != null) return;
             if (client.player == null) return;
-
-            // Register GLFW mouse callback once window is available
-            if (!mouseCallbackRegistered && client.getWindow() != null) {
-                long handle = client.getWindow().getHandle();
-                GLFW.glfwSetMouseButtonCallback(handle, (window, button, action, mods) -> {
-                    if (action != GLFW.GLFW_PRESS) return;
-                    MinecraftClient mc = MinecraftClient.getInstance();
-                    if (mc.currentScreen != null) return;
-                    double mx = mc.mouse.getX() * mc.getWindow().getScaledWidth()
-                            / mc.getWindow().getWidth();
-                    double my = mc.mouse.getY() * mc.getWindow().getScaledHeight()
-                            / mc.getWindow().getHeight();
-                    handleOverlayClick(mc, mx, my, button);
-                });
-                mouseCallbackRegistered = true;
-                LOGGER.info("[CustomMacro] Mouse callback registered.");
-            }
+            if (client.getWindow() == null) return;
 
             List<MacroEntry> macros = MacroConfig.getMacros();
             for (MacroEntry macro : macros) {
@@ -79,14 +64,8 @@ public class CustomMacroClient implements ClientModInitializer {
             }
         });
 
-        // ── 2. HUD overlay button ─────────────────────────────────────────────
-        HudRenderCallback.EVENT.register((drawContext, tickDeltaManager) -> {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client.currentScreen != null) return;
-            renderOverlayButton(drawContext, client);
-        });
-
-        // ── 3. Pause menu button injection ────────────────────────────────────
+        // ── 2. Pause menu: inject ◉ button (top-left) ─────────────────────────
+        // The button is ONLY added to the pause menu screen, NOT rendered in HUD.
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (screen instanceof GameMenuScreen) {
                 ButtonWidget macroBtn = ButtonWidget.builder(
@@ -119,21 +98,11 @@ public class CustomMacroClient implements ClientModInitializer {
         }
     }
 
-    // ── Render small overlay button in HUD (top-left) ────────────────────────
-    private void renderOverlayButton(DrawContext ctx, MinecraftClient client) {
-        ctx.fill(BTN_X, BTN_Y, BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE, 0xBB8B0000);
-        ctx.fill(BTN_X,               BTN_Y,               BTN_X + BTN_SIZE, BTN_Y + 1,           0xFFCC0000);
-        ctx.fill(BTN_X,               BTN_Y + BTN_SIZE - 1, BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE,    0xFFCC0000);
-        ctx.fill(BTN_X,               BTN_Y,               BTN_X + 1,        BTN_Y + BTN_SIZE,    0xFFCC0000);
-        ctx.fill(BTN_X + BTN_SIZE - 1, BTN_Y,              BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE,    0xFFCC0000);
-        ctx.drawCenteredTextWithShadow(client.textRenderer,
-                Text.literal("◉"),
-                BTN_X + BTN_SIZE / 2,
-                BTN_Y + BTN_SIZE / 2 - 4,
-                0xFF4444);
-    }
-
-    // ── Handle overlay button click ───────────────────────────────────────────
+    /**
+     * Called by MouseHandlerMixin when user left-clicks in-game (no screen open).
+     * Opens MacroManagerScreen if the click lands on the ◉ HUD button area.
+     * Returns true if the click was consumed (to cancel vanilla handling).
+     */
     public static boolean handleOverlayClick(MinecraftClient client, double mouseX, double mouseY, int button) {
         if (button == 0
                 && mouseX >= BTN_X && mouseX <= BTN_X + BTN_SIZE
