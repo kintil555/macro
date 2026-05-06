@@ -17,3 +17,4 @@ bin/
 
 # Fabric
 run/
+gradle/wrapper/gradle-wrapper.jar

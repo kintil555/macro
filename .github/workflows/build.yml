@@ -21,14 +21,22 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Gradle 9.2
+      - name: Download official Gradle 9.2 wrapper JAR
+        run: |
+          mkdir -p gradle/wrapper
+          curl -fsSL "https://services.gradle.org/distributions/gradle-9.2-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar
+          # Verify checksum (official from gradle.org/release-checksums)
+          echo "423cb469ccc0ecc31f0e4e1c309976198ccb734cdcbb7029d4bda0f18f57e8d9  gradle/wrapper/gradle-wrapper.jar" | sha256sum -c -
+          echo "Wrapper JAR checksum verified!"
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.2'
 
       - name: Build mod
-        run: gradle build --no-daemon
-        # Uses the gradle installed by setup-gradle action directly (no gradlew needed)
+        run: gradle build --no-daemon --stacktrace
 
       - name: Upload mod JAR
         uses: actions/upload-artifact@v4
@@ -38,7 +46,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Print build info
-        run: |
-          echo "=== Build Output ==="
-          ls -lh build/libs/ || echo "No libs found"
+      - name: Show build result
+        if: always()
+        run: ls -lh build/libs/ 2>/dev/null || echo "No libs built"
