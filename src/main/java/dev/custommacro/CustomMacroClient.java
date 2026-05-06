@@ -14,6 +14,7 @@ import net.minecraft.client.gui.screen.GameMenuScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.client.render.RenderPipelines;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,7 +88,7 @@ public class CustomMacroClient implements ClientModInitializer {
             if (screen instanceof GameMenuScreen) {
                 ScreenEvents.afterRender(screen).register((scr, drawContext, mouseX, mouseY, delta) -> {
                     drawContext.drawTexture(
-                            net.minecraft.client.render.RenderLayer::getGuiTextured,
+                            RenderPipelines.GUI_TEXTURED,
                             ICON,
                             BTN_X + 1, BTN_Y + 1, 0, 0,
                             BTN_SIZE - 2, BTN_SIZE - 2,
@@ -125,7 +126,7 @@ public class CustomMacroClient implements ClientModInitializer {
         ctx.fill(BTN_X + BTN_SIZE - 1, BTN_Y, BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE, 0xFF373737);
         // Icon
         ctx.drawTexture(
-                net.minecraft.client.render.RenderLayer::getGuiTextured,
+                RenderPipelines.GUI_TEXTURED,
                 ICON,
                 BTN_X + 1, BTN_Y + 1, 0, 0,
                 BTN_SIZE - 2, BTN_SIZE - 2,
