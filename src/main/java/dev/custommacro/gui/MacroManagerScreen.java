@@ -8,6 +8,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.input.KeyInput;
+import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 
@@ -75,9 +76,12 @@ public class MacroManagerScreen extends Screen {
     // Action type toggle (CHAT vs SWAP_ITEM)
     private ButtonWidget actionTypeButton;
     private MacroEntry.ActionType pendingActionType = MacroEntry.ActionType.CHAT;
-    // Swap-specific fields
+    // Swap: slot dropdown + dua item yang dipilih lewat picker
     private TextFieldWidget swapSlotField;
-    private TextFieldWidget swapKeywordField;
+    private String  pickedItemA = ""; // translation key item A
+    private String  pickedItemB = ""; // translation key item B
+    private ButtonWidget pickerBtnA;
+    private ButtonWidget pickerBtnB;
 
     // Modifier toggle buttons (saat edit)
     private ButtonWidget shiftToggle;
@@ -181,6 +185,12 @@ public class MacroManagerScreen extends Screen {
         // Restore action type dari entry yang diedit
         if (editIndex >= 0) {
             pendingActionType = entries.get(editIndex).getActionType();
+            // Restore picked items dari action string "slot|itemA|itemB"
+            if (entries.get(editIndex).isSwapAction()) {
+                String[] sp = entries.get(editIndex).getAction().split("\\|", 3);
+                if (sp.length >= 2) pickedItemA = sp[1].trim();
+                if (sp.length >= 3) pickedItemB = sp[2].trim();
+            }
         }
 
         // Name field
@@ -203,24 +213,40 @@ public class MacroManagerScreen extends Screen {
             actionField = new TextFieldWidget(textRenderer, fieldX + typeW + 2, typeY, fieldW - typeW - 2, 16, Text.literal("Action"));
             actionField.setMaxLength(256);
             actionField.setPlaceholder(Text.literal("/command atau teks..."));
-            if (editIndex >= 0) actionField.setText(entries.get(editIndex).getAction());
+            if (editIndex >= 0 && !entries.get(editIndex).isSwapAction())
+                actionField.setText(entries.get(editIndex).getAction());
             addDrawableChild(actionField);
         } else {
-            // Swap slot field
-            swapSlotField = new TextFieldWidget(textRenderer, fieldX + typeW + 2, typeY, (fieldW - typeW - 4) / 2, 16, Text.literal("Slot"));
-            swapSlotField.setMaxLength(16);
-            swapSlotField.setPlaceholder(Text.literal("chest/head..."));
-            // Swap keyword field
-            swapKeywordField = new TextFieldWidget(textRenderer, fieldX + typeW + 2 + (fieldW - typeW - 4) / 2 + 2, typeY, (fieldW - typeW - 4) / 2, 16, Text.literal("Item"));
-            swapKeywordField.setMaxLength(32);
-            swapKeywordField.setPlaceholder(Text.literal("elytra/sword..."));
+            // Swap: slot target field (tetap ketik) — chest, head, hotbar0, dst
+            int slotFieldW = 56;
+            swapSlotField = new TextFieldWidget(textRenderer, fieldX + typeW + 2, typeY, slotFieldW, 16, Text.literal("Slot"));
+            swapSlotField.setMaxLength(12);
+            swapSlotField.setPlaceholder(Text.literal("chest..."));
             if (editIndex >= 0 && entries.get(editIndex).isSwapAction()) {
-                String[] swapParts = entries.get(editIndex).getAction().split(":", 2);
-                if (swapParts.length >= 1) swapSlotField.setText(swapParts[0].trim());
-                if (swapParts.length >= 2) swapKeywordField.setText(swapParts[1].trim());
+                String[] sp = entries.get(editIndex).getAction().split("\\|", 3);
+                if (sp.length >= 1) swapSlotField.setText(sp[0].trim());
             }
             addDrawableChild(swapSlotField);
-            addDrawableChild(swapKeywordField);
+
+            // Tombol picker item A dan B — lebar sisa dibagi dua
+            int pickerX = fieldX + typeW + 2 + slotFieldW + 2;
+            int pickerW = (fieldW - typeW - 2 - slotFieldW - 2) / 2 - 1;
+
+            pickerBtnA = ButtonWidget.builder(itemPickerLabel(pickedItemA, "Item A"),
+                    btn -> openItemPicker("Item A", picked -> {
+                        pickedItemA = picked.getItem().getTranslationKey();
+                        rebuildEdit();
+                    })
+            ).dimensions(pickerX, typeY, pickerW, 16).build();
+            addDrawableChild(pickerBtnA);
+
+            pickerBtnB = ButtonWidget.builder(itemPickerLabel(pickedItemB, "Item B"),
+                    btn -> openItemPicker("Item B", picked -> {
+                        pickedItemB = picked.getItem().getTranslationKey();
+                        rebuildEdit();
+                    })
+            ).dimensions(pickerX + pickerW + 2, typeY, pickerW, 16).build();
+            addDrawableChild(pickerBtnB);
         }
 
         // Modifier toggles (Ctrl / Alt / Shift)
@@ -263,7 +289,7 @@ public class MacroManagerScreen extends Screen {
         ).dimensions(cx + cw - 122, bottomY, 58, BTN_H).build());
 
         addDrawableChild(ButtonWidget.builder(Text.literal("Batal"),
-                btn -> { editing = false; editIndex = -1; init(); }
+                btn -> { editing = false; editIndex = -1; pickedItemA = ""; pickedItemB = ""; init(); }
         ).dimensions(cx + cw - 62, bottomY, 62, BTN_H).build());
     }
 
@@ -277,11 +303,33 @@ public class MacroManagerScreen extends Screen {
                 : Text.literal("§6[SWAP]");
     }
 
+    private Text itemPickerLabel(String itemKey, String fallback) {
+        if (itemKey == null || itemKey.isEmpty()) return Text.literal("§7+ " + fallback);
+        // Ambil nama pendek dari translation key, misal "item.minecraft.elytra" → "elytra"
+        String[] parts = itemKey.split("[.:]");
+        String shortName = parts[parts.length - 1];
+        return Text.literal("§e" + shortName);
+    }
+
+    private void openItemPicker(String label, java.util.function.Consumer<net.minecraft.item.ItemStack> callback) {
+        if (client != null) {
+            client.setScreen(new ItemPickerScreen(this, label, stack -> {
+                callback.accept(stack);
+            }));
+        }
+    }
+
+    private void rebuildEdit() {
+        clearChildren();
+        initEditView();
+    }
+
     private void toggleActionType() {
         pendingActionType = (pendingActionType == MacroEntry.ActionType.CHAT)
                 ? MacroEntry.ActionType.SWAP_ITEM
                 : MacroEntry.ActionType.CHAT;
-        // Rebuild edit view untuk update fields
+        pickedItemA = "";
+        pickedItemB = "";
         clearChildren();
         initEditView();
     }
@@ -306,8 +354,11 @@ public class MacroManagerScreen extends Screen {
 
     // ── Logic ─────────────────────────────────────────────────────────────────
     private void openEdit(int idx) {
-        editing   = true;
-        editIndex = idx;
+        editing        = true;
+        editIndex      = idx;
+        pickedItemA    = "";
+        pickedItemB    = "";
+        pendingActionType = MacroEntry.ActionType.CHAT;
         init();
     }
 
@@ -318,11 +369,11 @@ public class MacroManagerScreen extends Screen {
 
         String action;
         if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
-            if (swapSlotField == null || swapKeywordField == null) return;
-            String slot    = swapSlotField.getText().trim();
-            String keyword = swapKeywordField.getText().trim();
-            if (slot.isEmpty() || keyword.isEmpty()) return;
-            action = slot + ":" + keyword;
+            if (swapSlotField == null) return;
+            String slot = swapSlotField.getText().trim();
+            if (slot.isEmpty() || pickedItemA.isEmpty() || pickedItemB.isEmpty()) return;
+            // Format: "slot|itemAKey|itemBKey"
+            action = slot + "|" + pickedItemA + "|" + pickedItemB;
         } else {
             if (actionField == null) return;
             action = actionField.getText().trim();
@@ -338,8 +389,10 @@ public class MacroManagerScreen extends Screen {
         }
         MacroConfig.setMacros(entries);
         MacroConfig.save();
-        editing   = false;
-        editIndex = -1;
+        editing        = false;
+        editIndex      = -1;
+        pickedItemA    = "";
+        pickedItemB    = "";
         init();
     }
 
@@ -530,12 +583,16 @@ public class MacroManagerScreen extends Screen {
         ctx.drawTextWithShadow(textRenderer, Text.literal("Mod:"),    labelX, startY + rowGap*2+4,  C_LABEL);
         ctx.drawTextWithShadow(textRenderer, Text.literal("Key:"),    labelX, startY + rowGap*3+6,  C_LABEL);
 
-        // Swap hint labels
+        // Swap hint labels di atas tombol picker
         if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
-            int typeW = 70;
-            int typeY = startY + rowGap;
-            ctx.drawTextWithShadow(textRenderer, Text.literal("§7slot"), fieldX + typeW + 4, typeY + 4 - 9, 0xAAAAAA);
-            ctx.drawTextWithShadow(textRenderer, Text.literal("§7item"), fieldX + typeW + 4 + (cw - 62 - typeW - 4) / 2 + 2, typeY + 4 - 9, 0xAAAAAA);
+            int typeW    = 70;
+            int slotFieldW = 56;
+            int pickerX  = fieldX + typeW + 2 + slotFieldW + 2;
+            int pickerW  = (fieldW - typeW - 2 - slotFieldW - 2) / 2 - 1;
+            int typeY    = startY + rowGap;
+            ctx.drawTextWithShadow(textRenderer, Text.literal("§7slot"), fieldX + typeW + 4, typeY - 8, 0xAAAAAA);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("§aItem A"), pickerX, typeY - 8, 0xAAFFAA);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("§cItem B"), pickerX + pickerW + 2, typeY - 8, 0xFFAAAA);
         }
 
         // Tanda * wajib
@@ -544,7 +601,10 @@ public class MacroManagerScreen extends Screen {
         if (pendingActionType == MacroEntry.ActionType.CHAT && actionField != null && actionField.getText().isEmpty())
             ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap + 5, C_WARN);
         if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
-            if (swapSlotField != null && swapSlotField.getText().isEmpty())
+            boolean missingSlot  = swapSlotField != null && swapSlotField.getText().isEmpty();
+            boolean missingItemA = pickedItemA == null || pickedItemA.isEmpty();
+            boolean missingItemB = pickedItemB == null || pickedItemB.isEmpty();
+            if (missingSlot || missingItemA || missingItemB)
                 ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap + 5, C_WARN);
         }
         if (pendingKeyCode == GLFW.GLFW_KEY_UNKNOWN)

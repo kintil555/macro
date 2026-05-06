@@ -151,24 +151,70 @@ public class CustomMacroClient implements ClientModInitializer {
     private void executeSwap(MinecraftClient client, String swapTarget) {
         if (client.player == null || client.interactionManager == null) return;
 
-        String[] parts = swapTarget.split(":", 2);
-        if (parts.length != 2) {
-            LOGGER.warn("[CustomMacro] Format swap salah: {}. Gunakan 'slot:keyword'", swapTarget);
+        // Format: "slotName|itemKeyA|itemKeyB"
+        // Contoh: "chest|minecraft:elytra|minecraft:diamond_chestplate"
+        String[] parts = swapTarget.split("\\|", 3);
+        if (parts.length != 3) {
+            LOGGER.warn("[CustomMacro] Format swap salah: {}", swapTarget);
             return;
         }
 
-        String slotName   = parts[0].trim().toLowerCase();
-        String keyword    = parts[1].trim().toLowerCase();
+        String slotName = parts[0].trim().toLowerCase();
+        String itemKeyA = parts[1].trim();
+        String itemKeyB = parts[2].trim();
         PlayerInventory inv = client.player.getInventory();
 
-        // Tentukan index slot target di PlayerInventory
-        // PlayerInventory: 0-8 = hotbar, 9-35 = main, 36=boots, 37=legs, 38=chest, 39=head, 40=offhand
-        int targetSlot = switch (slotName) {
-            case "head", "helmet"    -> 39;
+        // Resolve slot index
+        int targetSlot = resolveSlot(slotName);
+        if (targetSlot < 0) {
+            LOGGER.warn("[CustomMacro] Slot tidak dikenal: {}", slotName);
+            return;
+        }
+
+        // Cek item apa yang sekarang ada di slot target
+        ItemStack current = inv.getStack(targetSlot);
+        String currentKey = current.isEmpty() ? "" : current.getItem().getTranslationKey();
+
+        // Tentukan item mana yang harus dicari di inventory:
+        // Kalau slot target sudah berisi item A → cari item B, swap ke slot target
+        // Kalau slot target berisi item B (atau kosong) → cari item A, swap ke slot target
+        String searchKey = currentKey.contains(itemKeyA.replace("minecraft:", "").replace("item.", "").replace("block.", ""))
+                ? itemKeyB
+                : itemKeyA;
+
+        // Cari searchKey di inventory (semua slot kecuali targetSlot)
+        int foundSlot = -1;
+        for (int i = 0; i < inv.size(); i++) {
+            if (i == targetSlot) continue;
+            ItemStack stack = inv.getStack(i);
+            if (!stack.isEmpty()) {
+                String key = stack.getItem().getTranslationKey();
+                String display = stack.getName().getString().toLowerCase();
+                String search = searchKey.toLowerCase();
+                if (key.contains(search) || display.contains(search)) {
+                    foundSlot = i;
+                    break;
+                }
+            }
+        }
+
+        if (foundSlot == -1) {
+            LOGGER.info("[CustomMacro] Item '{}' tidak ditemukan di inventory", searchKey);
+            return;
+        }
+
+        LOGGER.info("[CustomMacro] Toggle swap: slot {}({}) <-> slot {}",
+                targetSlot, slotName, foundSlot);
+        doInventorySwap(client, foundSlot, targetSlot);
+    }
+
+    private int resolveSlot(String slotName) {
+        return switch (slotName) {
+            case "head", "helmet"      -> 39;
             case "chest", "chestplate" -> 38;
-            case "legs", "leggings"  -> 37;
-            case "feet", "boots"     -> 36;
-            case "offhand"           -> 40;
+            case "legs", "leggings"    -> 37;
+            case "feet", "boots"       -> 36;
+            case "offhand"             -> 40;
             default -> {
                 if (slotName.startsWith("hotbar")) {
                     try { yield Integer.parseInt(slotName.substring(6)); }
@@ -177,39 +223,6 @@ public class CustomMacroClient implements ClientModInitializer {
                 yield -1;
             }
         };
-
-        if (targetSlot < 0) {
-            LOGGER.warn("[CustomMacro] Slot tidak dikenal: {}", slotName);
-            return;
-        }
-
-        // Cari item yang cocok dengan keyword di seluruh inventory (0-40)
-        int foundSlot = -1;
-        for (int i = 0; i < inv.size(); i++) {
-            if (i == targetSlot) continue; // jangan swap dengan dirinya sendiri
-            ItemStack stack = inv.getStack(i);
-            if (!stack.isEmpty()) {
-                String itemName = stack.getItem().getTranslationKey().toLowerCase();
-                String displayName = stack.getName().getString().toLowerCase();
-                if (itemName.contains(keyword) || displayName.contains(keyword)) {
-                    foundSlot = i;
-                    break;
-                }
-            }
-        }
-
-        if (foundSlot == -1) {
-            LOGGER.info("[CustomMacro] Item '{}' tidak ditemukan di inventory", keyword);
-            return;
-        }
-
-        LOGGER.info("[CustomMacro] Swap item di slot {} ke slot {} ({})", foundSlot, targetSlot, slotName);
-
-        // Lakukan swap via inventory click packets
-        // Kita perlu convert slot PlayerInventory ke slot index screen inventory
-        // Saat player inventory screen terbuka: slot 0=craft, 1-4=craft grid, 5=head, 6=chest, 7=legs, 8=feet
-        // Tapi karena kita tidak buka screen, gunakan pendekatan langsung: set slot di inventory
-        doInventorySwap(client, foundSlot, targetSlot);
     }
 
     /**
