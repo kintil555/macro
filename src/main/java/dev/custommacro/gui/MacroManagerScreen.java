@@ -209,6 +209,13 @@ public class MacroManagerScreen extends Screen {
 
     // ── Render ────────────────────────────────────────────────────────────────
     @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // Draw a simple dark translucent overlay instead of calling super.renderBackground()
+        // to avoid "Can only blur once per frame" crash when opened on top of another screen
+        context.fill(0, 0, this.width, this.height, 0xA0000000);
+    }
+
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         renderBackground(context, mouseX, mouseY, delta);
 
