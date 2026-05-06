@@ -76,8 +76,8 @@ public class MacroManagerScreen extends Screen {
     // Action type toggle (CHAT vs SWAP_ITEM)
     private ButtonWidget actionTypeButton;
     private MacroEntry.ActionType pendingActionType = MacroEntry.ActionType.CHAT;
-    // Swap: slot dropdown + dua item yang dipilih lewat picker
-    private TextFieldWidget swapSlotField;
+    // Swap: slot yang dipilih via tombol cycle + dua item dari picker
+    private String  pendingSlot  = ""; // slot name: head, chest, legs, feet, offhand, hotbarN
     private String  pickedItemA = ""; // translation key item A
     private String  pickedItemB = ""; // translation key item B
     private ButtonWidget pickerBtnA;
@@ -217,16 +217,16 @@ public class MacroManagerScreen extends Screen {
                 actionField.setText(entries.get(editIndex).getAction());
             addDrawableChild(actionField);
         } else {
-            // Swap: slot target field (tetap ketik) — chest, head, hotbar0, dst
-            int slotFieldW = 56;
-            swapSlotField = new TextFieldWidget(textRenderer, fieldX + typeW + 2, typeY, slotFieldW, 16, Text.literal("Slot"));
-            swapSlotField.setMaxLength(12);
-            swapSlotField.setPlaceholder(Text.literal("chest..."));
-            if (editIndex >= 0 && entries.get(editIndex).isSwapAction()) {
+            // Swap: slot via tombol cycle (klik untuk ganti slot)
+            int slotFieldW = 64;
+            // Restore pendingSlot dari entry yang diedit
+            if (pendingSlot.isEmpty() && editIndex >= 0 && entries.get(editIndex).isSwapAction()) {
                 String[] sp = entries.get(editIndex).getAction().split("\\|", 3);
-                if (sp.length >= 1) swapSlotField.setText(sp[0].trim());
+                if (sp.length >= 1) pendingSlot = sp[0].trim();
             }
-            addDrawableChild(swapSlotField);
+            addDrawableChild(ButtonWidget.builder(slotLabel(),
+                    btn -> { cycleSlot(); rebuildEdit(); }
+            ).dimensions(fieldX + typeW + 2, typeY, slotFieldW, 16).build());
 
             // Tombol picker item A dan B — lebar sisa dibagi dua
             int pickerX = fieldX + typeW + 2 + slotFieldW + 2;
@@ -289,7 +289,7 @@ public class MacroManagerScreen extends Screen {
         ).dimensions(cx + cw - 122, bottomY, 58, BTN_H).build());
 
         addDrawableChild(ButtonWidget.builder(Text.literal("Batal"),
-                btn -> { editing = false; editIndex = -1; pickedItemA = ""; pickedItemB = ""; init(); }
+                btn -> { editing = false; editIndex = -1; pickedItemA = ""; pickedItemB = ""; pendingSlot = ""; init(); }
         ).dimensions(cx + cw - 62, bottomY, 62, BTN_H).build());
     }
 
@@ -309,6 +309,32 @@ public class MacroManagerScreen extends Screen {
         String[] parts = itemKey.split("[.:]");
         String shortName = parts[parts.length - 1];
         return Text.literal("§e" + shortName);
+    }
+    // Slot cycle order: head → chest → legs → feet → offhand → hotbar0..hotbar8
+    private static final String[] SLOT_ORDER = {
+        "head", "chest", "legs", "feet", "offhand",
+        "hotbar0", "hotbar1", "hotbar2", "hotbar3", "hotbar4",
+        "hotbar5", "hotbar6", "hotbar7", "hotbar8"
+    };
+
+    private Text slotLabel() {
+        if (pendingSlot == null || pendingSlot.isEmpty())
+            return Text.literal("§7[Pilih Slot]");
+        return Text.literal("§b" + pendingSlot);
+    }
+
+    private void cycleSlot() {
+        if (pendingSlot == null || pendingSlot.isEmpty()) {
+            pendingSlot = SLOT_ORDER[0];
+            return;
+        }
+        for (int i = 0; i < SLOT_ORDER.length; i++) {
+            if (SLOT_ORDER[i].equals(pendingSlot)) {
+                pendingSlot = SLOT_ORDER[(i + 1) % SLOT_ORDER.length];
+                return;
+            }
+        }
+        pendingSlot = SLOT_ORDER[0];
     }
 
     private void openItemPicker(String label, java.util.function.Consumer<net.minecraft.item.ItemStack> callback) {
@@ -330,6 +356,7 @@ public class MacroManagerScreen extends Screen {
                 : MacroEntry.ActionType.CHAT;
         pickedItemA = "";
         pickedItemB = "";
+        pendingSlot  = "";
         clearChildren();
         initEditView();
     }
@@ -358,6 +385,7 @@ public class MacroManagerScreen extends Screen {
         editIndex      = idx;
         pickedItemA    = "";
         pickedItemB    = "";
+        pendingSlot    = "";
         pendingActionType = MacroEntry.ActionType.CHAT;
         init();
     }
@@ -369,11 +397,9 @@ public class MacroManagerScreen extends Screen {
 
         String action;
         if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
-            if (swapSlotField == null) return;
-            String slot = swapSlotField.getText().trim();
-            if (slot.isEmpty() || pickedItemA.isEmpty() || pickedItemB.isEmpty()) return;
+            if (pendingSlot.isEmpty() || pickedItemA.isEmpty() || pickedItemB.isEmpty()) return;
             // Format: "slot|itemAKey|itemBKey"
-            action = slot + "|" + pickedItemA + "|" + pickedItemB;
+            action = pendingSlot + "|" + pickedItemA + "|" + pickedItemB;
         } else {
             if (actionField == null) return;
             action = actionField.getText().trim();
@@ -393,6 +419,7 @@ public class MacroManagerScreen extends Screen {
         editIndex      = -1;
         pickedItemA    = "";
         pickedItemB    = "";
+        pendingSlot    = "";
         init();
     }
 
@@ -601,7 +628,7 @@ public class MacroManagerScreen extends Screen {
         if (pendingActionType == MacroEntry.ActionType.CHAT && actionField != null && actionField.getText().isEmpty())
             ctx.drawTextWithShadow(textRenderer, Text.literal("*"), fieldX - 8, startY + rowGap + 5, C_WARN);
         if (pendingActionType == MacroEntry.ActionType.SWAP_ITEM) {
-            boolean missingSlot  = swapSlotField != null && swapSlotField.getText().isEmpty();
+            boolean missingSlot  = pendingSlot == null || pendingSlot.isEmpty();
             boolean missingItemA = pickedItemA == null || pickedItemA.isEmpty();
             boolean missingItemB = pickedItemB == null || pickedItemB.isEmpty();
             if (missingSlot || missingItemA || missingItemB)

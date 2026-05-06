@@ -148,11 +148,22 @@ public class CustomMacroClient implements ClientModInitializer {
      * Logika toggle:
      * - Kalau slot target berisi item A → pasang item B ke sana
      * - Kalau slot target berisi item B atau kosong → pasang item A ke sana
+     *
+     * PlayerInventory slot index:
+     *   0-8   = hotbar
+     *   9-35  = main inventory
+     *   36    = boots, 37 = leggings, 38 = chestplate, 39 = helmet
+     *   40    = offhand
+     *
+     * Screen slot index (PlayerInventoryScreen synced window id=0):
+     *   Armor: 5=head 6=chest 7=legs 8=feet
+     *   Offhand: 45
+     *   Main inv: 9-35 → screen 9-35
+     *   Hotbar: 0-8 → screen 36-44
      */
     private void executeSwap(MinecraftClient client, String swapTarget) {
         if (client.player == null || client.interactionManager == null) return;
 
-        // Format: "slotName|itemKeyA|itemKeyB"
         String[] parts = swapTarget.split("\\|", 3);
         if (parts.length != 3) {
             LOGGER.warn("[CustomMacro] Format swap salah (butuh 3 bagian): {}", swapTarget);
@@ -160,7 +171,7 @@ public class CustomMacroClient implements ClientModInitializer {
         }
 
         String slotName = parts[0].trim().toLowerCase();
-        String itemKeyA = parts[1].trim(); // translation key penuh
+        String itemKeyA = parts[1].trim();
         String itemKeyB = parts[2].trim();
 
         if (itemKeyA.isEmpty() || itemKeyB.isEmpty()) {
@@ -168,40 +179,65 @@ public class CustomMacroClient implements ClientModInitializer {
             return;
         }
 
-        int targetSlot = resolveSlot(slotName);
-        if (targetSlot < 0) {
+        int invTargetSlot = resolveSlot(slotName);
+        if (invTargetSlot < 0) {
             LOGGER.warn("[CustomMacro] Slot tidak dikenal: {}", slotName);
             return;
         }
 
         PlayerInventory inv = client.player.getInventory();
 
-        // Cek item yang SEKARANG ada di slot target (exact match)
-        ItemStack currentInSlot = inv.getStack(targetSlot);
+        // Cek item di slot target sekarang
+        ItemStack currentInSlot = inv.getStack(invTargetSlot);
         String currentKey = currentInSlot.isEmpty() ? "" : currentInSlot.getItem().getTranslationKey();
 
-        // Toggle: slot berisi A → cari B, lainnya → cari A
+        // Toggle: slot berisi A → mau pasang B, sebaliknya → pasang A
         String wantKey = currentKey.equals(itemKeyA) ? itemKeyB : itemKeyA;
 
-        // Cari wantKey di seluruh inventory (kecuali targetSlot)
-        int foundSlot = -1;
+        // Cari wantKey di seluruh inventory (kecuali targetSlot itu sendiri)
+        int foundInvSlot = -1;
         for (int i = 0; i < inv.size(); i++) {
-            if (i == targetSlot) continue;
+            if (i == invTargetSlot) continue;
             ItemStack stack = inv.getStack(i);
             if (!stack.isEmpty() && stack.getItem().getTranslationKey().equals(wantKey)) {
-                foundSlot = i;
+                foundInvSlot = i;
                 break;
             }
         }
 
-        if (foundSlot == -1) {
+        if (foundInvSlot == -1) {
             LOGGER.info("[CustomMacro] Item '{}' tidak ada di inventory", wantKey);
             return;
         }
 
-        LOGGER.info("[CustomMacro] Swap: inv[{}]('{}') <-> inv[{}]('{}')",
-                foundSlot, wantKey, targetSlot, currentKey.isEmpty() ? "kosong" : currentKey);
-        doInventorySwap(client, foundSlot, targetSlot);
+        LOGGER.info("[CustomMacro] Swap inv[{}]('{}') <-> inv[{}]('{}')",
+                foundInvSlot, wantKey, invTargetSlot, currentKey.isEmpty() ? "kosong" : currentKey);
+
+        // Gunakan PlayerInventory untuk swap langsung (client-side) lalu sync
+        ItemStack itemA = inv.getStack(foundInvSlot).copy();
+        ItemStack itemB = inv.getStack(invTargetSlot).copy();
+        inv.setStack(foundInvSlot, itemB);
+        inv.setStack(invTargetSlot, itemA);
+        // Sync ke server via clickSlot menggunakan window 0 (player inventory selalu open)
+        // Kita kirim swap dengan type PICKUP (double-click trick tidak perlu, cukup setStack + sync)
+        // MC Fabric: cara paling reliable adalah open screen inventory dulu, lalu click, lalu close.
+        // Alternatif: gunakan ClientPlayerInteractionManager.clickSlot dengan syncId player.currentScreenHandler.syncId
+        int syncId = client.player.currentScreenHandler.syncId;
+        int screenSlotFound  = invSlotToScreenSlot(foundInvSlot);
+        int screenSlotTarget = invSlotToScreenSlot(invTargetSlot);
+
+        if (screenSlotFound >= 0 && screenSlotTarget >= 0) {
+            // Lakukan dua klik PICKUP untuk swap: angkat dari foundSlot → taruh di targetSlot → ambil sisa ke foundSlot
+            client.interactionManager.clickSlot(syncId, screenSlotFound,  0, SlotActionType.PICKUP, client.player);
+            client.interactionManager.clickSlot(syncId, screenSlotTarget, 0, SlotActionType.PICKUP, client.player);
+            // Kalau masih ada item di cursor (item lama dari target), kembalikan ke foundSlot
+            if (!client.player.currentScreenHandler.getCursorStack().isEmpty()) {
+                client.interactionManager.clickSlot(syncId, screenSlotFound, 0, SlotActionType.PICKUP, client.player);
+            }
+        } else {
+            // Fallback: langsung setStack (client-only, tidak sync ke server vanilla)
+            inv.markDirty();
+        }
     }
 
     private int resolveSlot(String slotName) {
@@ -222,20 +258,29 @@ public class CustomMacroClient implements ClientModInitializer {
     }
 
     /**
-     * Lakukan swap dua slot di PlayerInventory secara langsung tanpa membuka screen.
-     * Caranya: salin item sementara, set ulang kedua slot.
+     * Konversi PlayerInventory slot index ke PlayerInventoryScreen slot index.
+     *
+     * PlayerInventory:
+     *   0-8   hotbar
+     *   9-35  main inv
+     *   36    boots, 37 leggings, 38 chest, 39 head
+     *   40    offhand
+     *
+     * PlayerInventoryScreen (syncId=0):
+     *   5     head, 6 chest, 7 legs, 8 feet
+     *   9-35  main inv (sama)
+     *   36-44 hotbar (inv 0-8)
+     *   45    offhand
      */
-    private void doInventorySwap(MinecraftClient client, int slotA, int slotB) {
-        if (client.player == null) return;
-        PlayerInventory inv = client.player.getInventory();
-        ItemStack itemA = inv.getStack(slotA).copy();
-        ItemStack itemB = inv.getStack(slotB).copy();
-        inv.setStack(slotA, itemB);
-        inv.setStack(slotB, itemA);
-        // Sync ke server dengan mengirim perubahan
-        // Fabric tidak expose direct packet, tapi MinecraftClient.player.networkHandler memiliki sendCommand
-        // Cara paling reliable: trigger auto-sync MC dengan menyentuh selectedSlot
-        client.player.getInventory().markDirty();
+    private int invSlotToScreenSlot(int invSlot) {
+        if (invSlot >= 0  && invSlot <= 8)  return invSlot + 36; // hotbar
+        if (invSlot >= 9  && invSlot <= 35) return invSlot;       // main inv
+        if (invSlot == 36) return 8;  // boots
+        if (invSlot == 37) return 7;  // leggings
+        if (invSlot == 38) return 6;  // chestplate
+        if (invSlot == 39) return 5;  // helmet
+        if (invSlot == 40) return 45; // offhand
+        return -1;
     }
 
     private void renderOverlayButton(DrawContext ctx) {
