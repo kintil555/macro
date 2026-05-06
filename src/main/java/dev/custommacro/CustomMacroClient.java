@@ -23,24 +23,17 @@ import java.util.Set;
 
 /**
  * Main client-side entry point for CustomMacro mod (Minecraft 1.21.11).
- *
- * Responsibilities:
- *  1. Load config on startup.
- *  2. Tick listener: detect macro key presses, fire action.
- *  3. Inject ◉ button into the Pause Menu (top-left).
- *  4. Render small ◉ overlay button in-game (top-left HUD).
  */
 public class CustomMacroClient implements ClientModInitializer {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("custommacro");
 
-    // Overlay button geometry
     private static final int BTN_X    = 5;
     private static final int BTN_Y    = 5;
     private static final int BTN_SIZE = 18;
 
-    // Track held keys to fire once-per-press
     private final Set<Integer> heldKeys = new HashSet<>();
+    private boolean mouseCallbackRegistered = false;
 
     @Override
     public void onInitializeClient() {
@@ -49,8 +42,25 @@ public class CustomMacroClient implements ClientModInitializer {
 
         // ── 1. Tick: fire macros ──────────────────────────────────────────────
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.currentScreen != null) return; // only when no GUI open
+            if (client.currentScreen != null) return;
             if (client.player == null) return;
+
+            // Register GLFW mouse callback once window is available
+            if (!mouseCallbackRegistered && client.getWindow() != null) {
+                long handle = client.getWindow().getHandle();
+                GLFW.glfwSetMouseButtonCallback(handle, (window, button, action, mods) -> {
+                    if (action != GLFW.GLFW_PRESS) return;
+                    MinecraftClient mc = MinecraftClient.getInstance();
+                    if (mc.currentScreen != null) return;
+                    double mx = mc.mouse.getX() * mc.getWindow().getScaledWidth()
+                            / mc.getWindow().getWidth();
+                    double my = mc.mouse.getY() * mc.getWindow().getScaledHeight()
+                            / mc.getWindow().getHeight();
+                    handleOverlayClick(mc, mx, my, button);
+                });
+                mouseCallbackRegistered = true;
+                LOGGER.info("[CustomMacro] Mouse callback registered.");
+            }
 
             List<MacroEntry> macros = MacroConfig.getMacros();
             for (MacroEntry macro : macros) {
@@ -103,7 +113,6 @@ public class CustomMacroClient implements ClientModInitializer {
         LOGGER.info("[CustomMacro] Firing '{}': {}", macro.getName(), action);
 
         if (action.startsWith("/")) {
-            // Strip the leading slash and send as command
             client.player.networkHandler.sendChatCommand(action.substring(1));
         } else {
             client.player.networkHandler.sendChatMessage(action);
@@ -112,14 +121,11 @@ public class CustomMacroClient implements ClientModInitializer {
 
     // ── Render small overlay button in HUD (top-left) ────────────────────────
     private void renderOverlayButton(DrawContext ctx, MinecraftClient client) {
-        // Background
         ctx.fill(BTN_X, BTN_Y, BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE, 0xBB8B0000);
-        // Border (manual 4 edges)
         ctx.fill(BTN_X,               BTN_Y,               BTN_X + BTN_SIZE, BTN_Y + 1,           0xFFCC0000);
         ctx.fill(BTN_X,               BTN_Y + BTN_SIZE - 1, BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE,    0xFFCC0000);
         ctx.fill(BTN_X,               BTN_Y,               BTN_X + 1,        BTN_Y + BTN_SIZE,    0xFFCC0000);
         ctx.fill(BTN_X + BTN_SIZE - 1, BTN_Y,              BTN_X + BTN_SIZE, BTN_Y + BTN_SIZE,    0xFFCC0000);
-        // Icon
         ctx.drawCenteredTextWithShadow(client.textRenderer,
                 Text.literal("◉"),
                 BTN_X + BTN_SIZE / 2,
@@ -127,14 +133,12 @@ public class CustomMacroClient implements ClientModInitializer {
                 0xFF4444);
     }
 
-    /**
-     * Called by MouseHandlerMixin when user clicks in-game (no screen open).
-     */
+    // ── Handle overlay button click ───────────────────────────────────────────
     public static boolean handleOverlayClick(MinecraftClient client, double mouseX, double mouseY, int button) {
         if (button == 0
                 && mouseX >= BTN_X && mouseX <= BTN_X + BTN_SIZE
                 && mouseY >= BTN_Y && mouseY <= BTN_Y + BTN_SIZE) {
-            client.setScreen(new MacroManagerScreen(null));
+            client.execute(() -> client.setScreen(new MacroManagerScreen(null)));
             return true;
         }
         return false;

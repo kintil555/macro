@@ -3,8 +3,7 @@
   "package": "dev.custommacro.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "InGameHudMixin",
-    "MouseHandlerMixin"
+    "InGameHudMixin"
   ],
   "injectors": {
     "defaultRequire": 1
