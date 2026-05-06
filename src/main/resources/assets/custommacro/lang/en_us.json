@@ -1,0 +1,17 @@
+{
+  "custommacro.title": "Custom Macro Manager",
+  "custommacro.button.add": "+ Add Macro",
+  "custommacro.button.delete": "Delete",
+  "custommacro.button.edit": "Edit",
+  "custommacro.button.save": "Save",
+  "custommacro.button.cancel": "Cancel",
+  "custommacro.button.close": "Close",
+  "custommacro.label.name": "Macro Name",
+  "custommacro.label.key": "Key",
+  "custommacro.label.action": "Action (command or text)",
+  "custommacro.label.macros": "Your Macros",
+  "custommacro.label.empty": "No macros yet. Click '+ Add Macro' to start!",
+  "custommacro.hint.action": "e.g. /home, /tp spawn, hello world",
+  "custommacro.hint.key": "Click then press a key...",
+  "custommacro.tooltip": "Open CustomMacro Manager"
+}

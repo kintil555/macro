@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "dev.custommacro.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "InGameHudMixin",
+    "MouseHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

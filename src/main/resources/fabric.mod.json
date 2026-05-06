@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "custommacro",
+  "version": "${version}",
+  "name": "CustomMacro",
+  "description": "Buat dan kelola macro in-game dengan mudah. Tekan tombol, jalankan perintah!",
+  "authors": ["kintil555"],
+  "contact": {
+    "sources": "https://github.com/kintil555/macro"
+  },
+  "license": "MIT",
+  "icon": "assets/custommacro/textures/gui/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.custommacro.CustomMacroClient"
+    ]
+  },
+  "mixins": [
+    "custommacro.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11"
+  }
+}

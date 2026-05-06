@@ -1,0 +1,44 @@
+name: Build CustomMacro
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle 9.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.2'
+
+      - name: Build mod
+        run: gradle build --no-daemon
+        # Uses the gradle installed by setup-gradle action directly (no gradlew needed)
+
+      - name: Upload mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: custommacro-${{ github.run_number }}
+          path: build/libs/*[!-sources].jar
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Print build info
+        run: |
+          echo "=== Build Output ==="
+          ls -lh build/libs/ || echo "No libs found"
